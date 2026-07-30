@@ -13,7 +13,6 @@ import {
   Plus,
   Search,
   Shirt,
-  SlidersHorizontal,
   Sparkles,
   Tags,
   Trash2,
@@ -255,7 +254,7 @@ export default function WardrobeApp() {
   function openAdd() {
     setError(null);
     setSelectedItems([]);
-    setModal(activeView === "outfits" ? "outfit" : "item");
+    setModal(activeView === "outfits" && items.length ? "outfit" : "item");
   }
 
   function closeModal(force = false) {
@@ -425,9 +424,9 @@ export default function WardrobeApp() {
                 <p className="section-kicker">Your collection</p>
                 <h2>Wardrobe</h2>
               </div>
-              <button className="filter-button" aria-label="Filter wardrobe">
-                <SlidersHorizontal size={18} />
-              </button>
+              <span className="quiet-count">
+                {plural(filteredItems.length, "piece")}
+              </span>
             </div>
 
             <label className="search-box">
