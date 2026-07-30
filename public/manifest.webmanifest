@@ -1,0 +1,10 @@
+{
+  "name": "Trove Wardrobe",
+  "short_name": "Trove",
+  "description": "Your wardrobe, remembered.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f1e9",
+  "theme_color": "#f5f1e9",
+  "orientation": "portrait-primary"
+}
