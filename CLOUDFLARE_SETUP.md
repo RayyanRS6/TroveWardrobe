@@ -19,7 +19,10 @@ continues to consume storage.
 ## Current provisioning status
 
 - D1 database `trove-wardrobe`: created in APAC; migrations 0000-0005 applied.
-- Backblaze B2 private bucket: needs to be created in your personal B2 account.
+- Backblaze B2 private bucket `meeru-trove-wardrobe-images`: created and
+  configured with encryption.
+- Restricted B2 application key ID: configured; secret still needs to be stored
+  with Wrangler.
 - Worker deployment: intentionally disabled until B2 and Access are configured.
 - Cloudflare Images Free binding: configured for upload-time optimization.
 - No R2 subscription is required.
@@ -52,12 +55,12 @@ GitHub.
 
 ## 3. Configure non-secret values
 
-Replace the three placeholders in `wrangler.jsonc`:
+The following non-secret values are configured in `wrangler.jsonc`:
 
 ```jsonc
-"B2_ENDPOINT": "s3.your-region.backblazeb2.com",
-"B2_BUCKET_NAME": "your-private-bucket-name",
-"B2_APPLICATION_KEY_ID": "your-restricted-key-id"
+"B2_ENDPOINT": "s3.eu-central-003.backblazeb2.com",
+"B2_BUCKET_NAME": "meeru-trove-wardrobe-images",
+"B2_APPLICATION_KEY_ID": "003fc236fc3f0d00000000002"
 ```
 
 Keep `B2_STORAGE_LIMIT_BYTES` at `9000000000`. It is intentionally below B2's

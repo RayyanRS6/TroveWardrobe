@@ -31,9 +31,9 @@
     "binding": "IMAGES"
   },
   "vars": {
-    "B2_ENDPOINT": "replace-with-your-b2-s3-endpoint",
-    "B2_BUCKET_NAME": "replace-with-your-private-b2-bucket",
-    "B2_APPLICATION_KEY_ID": "replace-with-your-b2-key-id",
+    "B2_ENDPOINT": "s3.eu-central-003.backblazeb2.com",
+    "B2_BUCKET_NAME": "meeru-trove-wardrobe-images",
+    "B2_APPLICATION_KEY_ID": "003fc236fc3f0d00000000002",
     "B2_STORAGE_LIMIT_BYTES": "9000000000"
   },
   "observability": {

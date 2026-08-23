@@ -20,8 +20,15 @@ test("deployment config binds private wardrobe storage", async () => {
   assert.equal(config.r2_buckets, undefined);
   assert.equal(config.images.binding, "IMAGES");
   assert.equal(config.vars.B2_STORAGE_LIMIT_BYTES, "9000000000");
-  assert.match(config.vars.B2_ENDPOINT, /^replace-with-/);
-  assert.match(config.vars.B2_BUCKET_NAME, /^replace-with-/);
+  assert.equal(
+    config.vars.B2_ENDPOINT,
+    "s3.eu-central-003.backblazeb2.com",
+  );
+  assert.equal(
+    config.vars.B2_BUCKET_NAME,
+    "meeru-trove-wardrobe-images",
+  );
+  assert.equal(config.vars.B2_APPLICATION_KEY_ID, "003fc236fc3f0d00000000002");
 });
 
 test("B2 integration keeps images private and deletes exact versions", async () => {
