@@ -18,7 +18,7 @@ export async function DELETE(
     }
 
     const owner = getOwner(request);
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const result = await db
       .prepare("DELETE FROM outfits WHERE id = ? AND owner = ?")
       .bind(id, owner)

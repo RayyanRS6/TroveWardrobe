@@ -35,7 +35,6 @@ type WardrobeItem = {
   color: string;
   season: string;
   imageUrl: string;
-  createdAt: string;
 };
 
 type Outfit = {
@@ -43,7 +42,6 @@ type Outfit = {
   name: string;
   occasion: string;
   itemIds: number[];
-  createdAt: string;
 };
 
 type CachedWardrobe = {

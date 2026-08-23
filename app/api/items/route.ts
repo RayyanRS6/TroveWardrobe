@@ -16,10 +16,10 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const owner = getOwner(request);
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const result = await db
       .prepare(
-        `SELECT id, owner, name, category, color, season, image_key, image_version, image_type, image_size, created_at
+        `SELECT id, name, category, color, season, image_key
          FROM wardrobe_items
          WHERE owner = ?
          ORDER BY created_at DESC, id DESC`,
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const usage = await db
       .prepare("SELECT COALESCE(SUM(image_size), 0) AS bytes_used FROM wardrobe_items")
       .first<{ bytes_used: number }>();
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
            SELECT COALESCE(SUM(image_size), 0)
            FROM wardrobe_items
          ) + ? <= ?
-         RETURNING id, owner, name, category, color, season, image_key, image_version, image_type, image_size, created_at`,
+         RETURNING id, name, category, color, season, image_key`,
       )
       .bind(
         owner,

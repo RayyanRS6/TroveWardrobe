@@ -19,7 +19,7 @@ export async function GET(
     }
 
     const owner = getOwner(request);
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const row = await db
       .prepare(
         "SELECT image_key, image_version, image_type FROM wardrobe_items WHERE id = ? AND owner = ?",

@@ -11,10 +11,10 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const owner = getOwner(request);
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const result = await db
       .prepare(
-        `SELECT id, owner, name, occasion, item_ids, created_at
+        `SELECT id, name, occasion, item_ids
          FROM outfits
          WHERE owner = ?
          ORDER BY created_at DESC, id DESC`,
@@ -50,12 +50,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const row = await db
       .prepare(
         `INSERT INTO outfits (owner, name, occasion, item_ids)
          VALUES (?, ?, ?, ?)
-         RETURNING id, owner, name, occasion, item_ids, created_at`,
+         RETURNING id, name, occasion, item_ids`,
       )
       .bind(owner, name, occasion, JSON.stringify(itemIds))
       .first<OutfitRow>();

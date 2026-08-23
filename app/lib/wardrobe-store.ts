@@ -3,25 +3,18 @@ import { B2StorageError } from "./b2-storage";
 
 export type WardrobeItemRow = {
   id: number;
-  owner: string;
   name: string;
   category: string;
   color: string;
   season: string;
   image_key: string;
-  image_version: string;
-  image_type: string;
-  image_size: number;
-  created_at: string;
 };
 
 export type OutfitRow = {
   id: number;
-  owner: string;
   name: string;
   occasion: string;
   item_ids: string;
-  created_at: string;
 };
 
 export function getOwner(request: Request) {
@@ -31,7 +24,7 @@ export function getOwner(request: Request) {
   return email.trim().toLowerCase();
 }
 
-export class WardrobeAuthError extends Error {
+class WardrobeAuthError extends Error {
   constructor() {
     super("Please sign in to access your wardrobe.");
   }
@@ -49,7 +42,6 @@ export function itemResponse(row: WardrobeItemRow) {
     color: row.color,
     season: row.season,
     imageUrl: `/api/images/${row.id}?v=${encodeURIComponent(row.image_key)}`,
-    createdAt: row.created_at,
   };
 }
 
@@ -69,7 +61,6 @@ export function outfitResponse(row: OutfitRow) {
     name: row.name,
     occasion: row.occasion,
     itemIds,
-    createdAt: row.created_at,
   };
 }
 

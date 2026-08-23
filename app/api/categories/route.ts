@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const owner = getOwner(request);
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const result = await db
       .prepare(
         "SELECT name FROM wardrobe_categories WHERE owner = ? ORDER BY name COLLATE NOCASE",

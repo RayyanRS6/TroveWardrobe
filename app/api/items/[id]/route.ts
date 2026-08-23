@@ -19,13 +19,13 @@ export async function DELETE(
     }
 
     const owner = getOwner(request);
-    const db = await getWardrobeDb();
+    const db = getWardrobeDb();
     const row = await db
       .prepare(
-        "SELECT image_key, image_version, image_size FROM wardrobe_items WHERE id = ? AND owner = ?",
+        "SELECT image_key, image_version FROM wardrobe_items WHERE id = ? AND owner = ?",
       )
       .bind(id, owner)
-      .first<{ image_key: string; image_version: string; image_size: number }>();
+      .first<{ image_key: string; image_version: string }>();
 
     if (!row) {
       return Response.json({ error: "Item not found." }, { status: 404 });

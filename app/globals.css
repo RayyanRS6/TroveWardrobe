@@ -196,7 +196,6 @@ select:focus-visible {
   font-size: 32px;
 }
 
-.filter-button,
 .modal-sheet header button {
   display: grid;
   width: 42px;
