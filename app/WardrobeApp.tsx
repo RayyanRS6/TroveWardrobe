@@ -49,6 +49,7 @@ type Outfit = {
 type CachedWardrobe = {
   items: WardrobeItem[];
   outfits: Outfit[];
+  categories?: string[];
 };
 
 type DeleteTarget = {
@@ -57,8 +58,7 @@ type DeleteTarget = {
   name: string;
 };
 
-const categories = [
-  "All",
+const presetCategories = [
   "Shirts",
   "T-shirts",
   "Pants",
@@ -157,6 +157,7 @@ function plural(value: number, singular: string, multiple = `${singular}s`) {
 export default function WardrobeApp() {
   const [items, setItems] = useState<WardrobeItem[]>([]);
   const [outfits, setOutfits] = useState<Outfit[]>([]);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [activeView, setActiveView] = useState<
     "wardrobe" | "outfits" | "tags"
   >("wardrobe");
@@ -181,11 +182,12 @@ export default function WardrobeApp() {
 
   const refresh = useCallback(async () => {
     try {
-      const [itemsResponse, outfitsResponse] = await Promise.all([
+      const [itemsResponse, outfitsResponse, categoriesResponse] = await Promise.all([
         fetch("/api/items", { cache: "no-store" }),
         fetch("/api/outfits", { cache: "no-store" }),
+        fetch("/api/categories", { cache: "no-store" }),
       ]);
-      if (!itemsResponse.ok || !outfitsResponse.ok) {
+      if (!itemsResponse.ok || !outfitsResponse.ok || !categoriesResponse.ok) {
         throw new Error("Could not reach your wardrobe.");
       }
       const itemsData = (await itemsResponse.json()) as {
@@ -194,18 +196,24 @@ export default function WardrobeApp() {
       const outfitsData = (await outfitsResponse.json()) as {
         outfits: Outfit[];
       };
+      const categoriesData = (await categoriesResponse.json()) as {
+        categories: string[];
+      };
       setItems(itemsData.items);
       setOutfits(outfitsData.outfits);
+      setCustomCategories(categoriesData.categories);
       setOffline(false);
       await writeCache({
         items: itemsData.items,
         outfits: outfitsData.outfits,
+        categories: categoriesData.categories,
       });
     } catch {
       const cached = await readCache();
       if (cached) {
         setItems(cached.items);
         setOutfits(cached.outfits);
+        setCustomCategories(cached.categories ?? []);
         setOffline(true);
       } else {
         setError("Your wardrobe could not be loaded. Please try again.");
@@ -244,12 +252,26 @@ export default function WardrobeApp() {
     });
   }, [activeCategory, items, search]);
 
+  const categories = useMemo(
+    () => [
+      "All",
+      ...Array.from(
+        new Set([
+          ...presetCategories,
+          ...customCategories,
+          ...items.map((item) => item.category),
+        ]),
+      ),
+    ],
+    [customCategories, items],
+  );
+
   const categoryCounts = useMemo(() => {
     return categories.slice(1).map((category) => ({
       category,
       count: items.filter((item) => item.category === category).length,
     }));
-  }, [items]);
+  }, [categories, items]);
 
   function openAdd() {
     setError(null);
@@ -294,7 +316,15 @@ export default function WardrobeApp() {
       }
       const nextItems = [data.item, ...items];
       setItems(nextItems);
-      await writeCache({ items: nextItems, outfits });
+      const nextCategories = customCategories.includes(data.item.category)
+        ? customCategories
+        : [...customCategories, data.item.category];
+      setCustomCategories(nextCategories);
+      await writeCache({
+        items: nextItems,
+        outfits,
+        categories: nextCategories,
+      });
       closeModal(true);
       notify(`${data.item.name} added to your wardrobe`);
     } catch (caught) {
@@ -334,7 +364,11 @@ export default function WardrobeApp() {
       }
       const nextOutfits = [data.outfit, ...outfits];
       setOutfits(nextOutfits);
-      await writeCache({ items, outfits: nextOutfits });
+      await writeCache({
+        items,
+        outfits: nextOutfits,
+        categories: customCategories,
+      });
       closeModal(true);
       setActiveView("outfits");
       notify(`${data.outfit.name} is ready`);
@@ -369,7 +403,11 @@ export default function WardrobeApp() {
           : outfits;
       setItems(nextItems);
       setOutfits(nextOutfits);
-      await writeCache({ items: nextItems, outfits: nextOutfits });
+      await writeCache({
+        items: nextItems,
+        outfits: nextOutfits,
+        categories: customCategories,
+      });
       setDeleteTarget(null);
       notify(`${target.name} deleted`);
     } catch (caught) {
@@ -674,15 +712,18 @@ export default function WardrobeApp() {
             <div className="field-row">
               <label className="field select-field">
                 <span>Category</span>
-                <select name="category" defaultValue="" required>
-                  <option value="" disabled>
-                    Choose one
-                  </option>
+                <input
+                  name="category"
+                  list="wardrobe-categories"
+                  placeholder="Choose or type new"
+                  required
+                  maxLength={40}
+                />
+                <datalist id="wardrobe-categories">
                   {categories.slice(1).map((category) => (
-                    <option key={category}>{category}</option>
+                    <option key={category} value={category} />
                   ))}
-                </select>
-                <ChevronDown size={17} />
+                </datalist>
               </label>
               <label className="field">
                 <span>Color</span>

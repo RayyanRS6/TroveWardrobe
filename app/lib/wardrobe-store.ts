@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 type WardrobeEnv = {
   DB?: D1Database;
   WARDROBE_IMAGES?: R2Bucket;
+  AUTH_BYPASS_EMAIL?: string;
 };
 
 export type WardrobeItemRow = {
@@ -31,10 +32,18 @@ function runtimeEnv() {
 }
 
 export function getOwner(request: Request) {
-  return (
-    request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() ||
-    "local@trove.app"
-  );
+  const email =
+    request.headers.get("cf-access-authenticated-user-email") ||
+    runtimeEnv().AUTH_BYPASS_EMAIL;
+
+  if (!email?.trim()) throw new WardrobeAuthError();
+  return email.trim().toLowerCase();
+}
+
+export class WardrobeAuthError extends Error {
+  constructor() {
+    super("Please sign in to access your wardrobe.");
+  }
 }
 
 export function getImageBucket() {
@@ -75,11 +84,23 @@ export async function getWardrobeDb() {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS wardrobe_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(owner, name)
+      )
+    `),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS wardrobe_items_owner_idx ON wardrobe_items (owner, created_at)",
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS outfits_owner_idx ON outfits (owner, created_at)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS wardrobe_categories_owner_idx ON wardrobe_categories (owner, name)",
     ),
   ]);
 
@@ -93,7 +114,7 @@ export function itemResponse(row: WardrobeItemRow) {
     category: row.category,
     color: row.color,
     season: row.season,
-    imageUrl: `/api/images/${row.id}`,
+    imageUrl: `/api/images/${row.id}?w=640`,
     createdAt: row.created_at,
   };
 }
@@ -119,6 +140,9 @@ export function outfitResponse(row: OutfitRow) {
 }
 
 export function apiError(error: unknown) {
+  if (error instanceof WardrobeAuthError) {
+    return Response.json({ error: error.message }, { status: 401 });
+  }
   const message =
     error instanceof Error ? error.message : "Something unexpected happened.";
   console.error(error);

@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const wardrobeItems = sqliteTable(
   "wardrobe_items",
@@ -30,4 +36,21 @@ export const outfits = sqliteTable(
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [index("outfits_owner_idx").on(table.owner, table.createdAt)],
+);
+
+export const wardrobeCategories = sqliteTable(
+  "wardrobe_categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("wardrobe_categories_owner_idx").on(table.owner, table.name),
+    uniqueIndex("wardrobe_categories_owner_name_unique").on(
+      table.owner,
+      table.name,
+    ),
+  ],
 );

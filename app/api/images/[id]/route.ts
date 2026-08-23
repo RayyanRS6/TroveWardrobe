@@ -4,6 +4,7 @@ import {
   getOwner,
   getWardrobeDb,
 } from "../../../lib/wardrobe-store";
+import { env } from "cloudflare:workers";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,56 @@ export async function GET(
       .first<{ image_key: string; image_type: string }>();
 
     if (!row) return new Response("Image not found", { status: 404 });
+    const url = new URL(request.url);
+    const requestedWidth = Number(url.searchParams.get("w") || 640);
+    const widths = [160, 320, 640, 960, 1600];
+    const width = widths.reduce((closest, candidate) =>
+      Math.abs(candidate - requestedWidth) < Math.abs(closest - requestedWidth)
+        ? candidate
+        : closest,
+    );
+    const shouldTransform = url.searchParams.get("original") !== "1";
+    const cache = caches.default;
+    const cacheKey = new Request(
+      new URL(`/api/images/${id}?w=${width}`, url.origin).toString(),
+    );
+
+    if (shouldTransform) {
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
+    }
+
     const object = await getImageBucket().get(row.image_key);
     if (!object) return new Response("Image not found", { status: 404 });
+
+    const images = (env as unknown as {
+      IMAGES?: {
+        input(stream: ReadableStream): {
+          transform(options: Record<string, unknown>): {
+            output(options: { format: "image/webp"; quality: number }): {
+              response(): Promise<Response>;
+            };
+          };
+        };
+      };
+    }).IMAGES;
+
+    if (shouldTransform && images) {
+      const transformed = await images
+        .input(object.body)
+        .transform({ width, fit: "cover" })
+        .output({ format: "image/webp", quality: 82 })
+        .response();
+      const response = new Response(transformed.body, {
+        headers: {
+          "Content-Type": "image/webp",
+          "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+          "X-Image-Variant": `${width}w-webp`,
+        },
+      });
+      await cache.put(cacheKey, response.clone());
+      return response;
+    }
 
     return new Response(object.body, {
       headers: {

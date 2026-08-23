@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `wardrobe_categories_owner_name_unique` ON `wardrobe_categories` (`owner`,`name`);

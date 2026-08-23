@@ -48,9 +48,16 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!(image instanceof File) || !image.type.startsWith("image/")) {
+    if (category.length > 40 || color.length > 30 || season.length > 30) {
+      return Response.json({ error: "One of the details is too long." }, { status: 400 });
+    }
+
+    if (
+      !(image instanceof File) ||
+      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(image.type)
+    ) {
       return Response.json(
-        { error: "Please choose a clothing image." },
+        { error: "Please choose a JPG, PNG, WebP, or AVIF clothing image." },
         { status: 400 },
       );
     }
@@ -77,6 +84,12 @@ export async function POST(request: Request) {
     });
 
     const db = await getWardrobeDb();
+    await db
+      .prepare(
+        "INSERT OR IGNORE INTO wardrobe_categories (owner, name) VALUES (?, ?)",
+      )
+      .bind(owner, category)
+      .run();
     const row = await db
       .prepare(
         `INSERT INTO wardrobe_items
