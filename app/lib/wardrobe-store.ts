@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { B2StorageError } from "./b2-storage";
 
 export type WardrobeItemRow = {
   id: number;
@@ -8,7 +9,9 @@ export type WardrobeItemRow = {
   color: string;
   season: string;
   image_key: string;
+  image_version: string;
   image_type: string;
+  image_size: number;
   created_at: string;
 };
 
@@ -34,10 +37,6 @@ export class WardrobeAuthError extends Error {
   }
 }
 
-export function getImageBucket() {
-  return env.WARDROBE_IMAGES;
-}
-
 export function getWardrobeDb() {
   return env.DB;
 }
@@ -49,7 +48,7 @@ export function itemResponse(row: WardrobeItemRow) {
     category: row.category,
     color: row.color,
     season: row.season,
-    imageUrl: `/api/images/${row.id}?w=640`,
+    imageUrl: `/api/images/${row.id}?v=${encodeURIComponent(row.image_key)}`,
     createdAt: row.created_at,
   };
 }
@@ -77,6 +76,19 @@ export function outfitResponse(row: OutfitRow) {
 export function apiError(error: unknown) {
   if (error instanceof WardrobeAuthError) {
     return Response.json({ error: error.message }, { status: 401 });
+  }
+  if (error instanceof B2StorageError) {
+    console.error(
+      JSON.stringify({
+        message: "B2 storage request failed",
+        error: error.message,
+        status: error.status,
+      }),
+    );
+    return Response.json(
+      { error: "Image storage is temporarily unavailable. Please try again." },
+      { status: error.status === 503 ? 503 : 502 },
+    );
   }
   console.error(
     JSON.stringify({

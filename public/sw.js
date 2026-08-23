@@ -1,4 +1,4 @@
-const CACHE = "trove-shell-v1";
+const CACHE = "trove-shell-v2";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -29,13 +29,10 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(
         caches.open(CACHE).then(async (cache) => {
           const cached = await cache.match(request);
-          const fresh = fetch(request)
-            .then((response) => {
-              if (response.ok) cache.put(request, response.clone());
-              return response;
-            })
-            .catch(() => cached);
-          return cached || fresh;
+          if (cached) return cached;
+          const response = await fetch(request);
+          if (response.ok) await cache.put(request, response.clone());
+          return response;
         }),
       );
     }

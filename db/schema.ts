@@ -17,7 +17,9 @@ export const wardrobeItems = sqliteTable(
     color: text("color").notNull().default(""),
     season: text("season").notNull().default("All season"),
     imageKey: text("image_key").notNull(),
+    imageVersion: text("image_version").notNull().default(""),
     imageType: text("image_type").notNull().default("image/webp"),
+    imageSize: integer("image_size").notNull().default(0),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [

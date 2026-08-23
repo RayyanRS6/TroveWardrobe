@@ -1,0 +1,1 @@
+ALTER TABLE `wardrobe_items` ADD `image_size` integer DEFAULT 0 NOT NULL;

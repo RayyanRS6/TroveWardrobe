@@ -502,7 +502,12 @@ export default function WardrobeApp() {
                   <article className="clothing-card" key={item.id}>
                     <div className="card-image">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={item.imageUrl} alt={item.name} />
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        loading="lazy"
+                        decoding="async"
+                      />
                       <button
                         className="delete-icon"
                         onClick={() =>
@@ -569,7 +574,13 @@ export default function WardrobeApp() {
                       >
                         {outfitItems.slice(0, 3).map((item) => (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img key={item.id} src={item.imageUrl} alt="" />
+                          <img
+                            key={item.id}
+                            src={item.imageUrl}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                          />
                         ))}
                         {!outfitItems.length && <Shirt size={42} />}
                       </div>
@@ -802,7 +813,12 @@ export default function WardrobeApp() {
                     aria-pressed={selected}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.imageUrl} alt={item.name} />
+                    <img
+                      src={item.imageUrl}
+                      alt={item.name}
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <span>{item.name}</span>
                     {selected && (
                       <i>

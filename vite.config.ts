@@ -1,5 +1,5 @@
 import vinext from "vinext";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -7,29 +7,7 @@ const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
-const localBindingConfig = {
-  main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
-  d1_databases: [
-    {
-      binding: "DB",
-      database_name: "trove-wardrobe-local",
-      database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
-    },
-  ],
-  r2_buckets: [
-    {
-      binding: "WARDROBE_IMAGES",
-      bucket_name: "trove-wardrobe-images-local",
-    },
-  ],
-  images: {
-    binding: "IMAGES",
-    remote: true,
-  },
-};
-
-export default defineConfig(async () => {
+export default defineConfig(async ({ mode }) => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -38,6 +16,28 @@ export default defineConfig(async () => {
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
+  const localEnv = loadEnv(mode, process.cwd(), "");
+  const localBindingConfig = {
+    main: "./worker/index.ts",
+    compatibility_flags: ["nodejs_compat"],
+    d1_databases: [
+      {
+        binding: "DB",
+        database_name: "trove-wardrobe-local",
+        database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+      },
+    ],
+    vars: {
+      B2_ENDPOINT:
+        localEnv.B2_ENDPOINT ?? "replace-with-your-b2-s3-endpoint",
+      B2_BUCKET_NAME:
+        localEnv.B2_BUCKET_NAME ?? "replace-with-your-private-b2-bucket",
+      B2_APPLICATION_KEY_ID:
+        localEnv.B2_APPLICATION_KEY_ID ?? "replace-with-your-b2-key-id",
+      B2_APPLICATION_KEY: localEnv.B2_APPLICATION_KEY ?? "",
+      B2_STORAGE_LIMIT_BYTES: "9000000000",
+    },
+  };
 
   return {
     server: isCodexSeatbeltSandbox

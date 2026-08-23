@@ -11,17 +11,18 @@
     "start": "vinext start",
     "cf:deploy": "npm run build && wrangler deploy --config wrangler.jsonc",
     "cf:d1:migrate": "wrangler d1 migrations apply trove-wardrobe --remote --config wrangler.jsonc",
-    "cf:types": "wrangler types --config wrangler.jsonc",
+    "cf:types": "wrangler types --config wrangler.jsonc --env-file .env.local.example",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .wrangler --ignore-pattern worker-configuration.d.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.28.0",
     "next": "^16.3.2",
-    "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.53.1",
@@ -30,14 +31,14 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
+    "@vitejs/plugin-rsc": "^0.5.34",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "^16.3.2",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "^19.2.8",
     "typescript": "5.9.3",
-    "vinext": "0.0.50",
-    "vite": "8.0.13",
+    "vinext": "^1.0.0-beta.8",
+    "vite": "^8.2.2",
     "wrangler": "^4.125.0"
   },
   "type": "module"

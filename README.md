@@ -6,11 +6,12 @@ vinext, and Cloudflare Workers.
 ## Architecture
 
 - Cloudflare Workers hosts the web app and API.
-- D1 stores clothing, custom categories, and outfits.
-- A private R2 bucket stores original clothing photos.
-- Cloudflare Images creates fixed-size WebP variants from R2 originals.
+- D1 stores clothing, custom categories, outfits, and private B2 object metadata.
+- A private Backblaze B2 bucket stores encrypted clothing photos.
+- The Worker signs B2 S3 requests; B2 credentials never reach the browser.
 - Worker-level Cloudflare Access protects the app and its API.
-- IndexedDB and the service worker retain a convenient offline copy on the device.
+- Browser caching, lazy loading, IndexedDB, and the service worker reduce repeat
+  database and image requests.
 
 ## Local development
 
@@ -40,4 +41,4 @@ domain is optional.
 ## Backups
 
 GitHub stores the source code, not uploaded wardrobe data. Export D1 and copy
-R2 objects periodically as described in the setup guide.
+B2 objects periodically as described in the setup guide.

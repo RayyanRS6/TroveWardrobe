@@ -1,10 +1,9 @@
 import {
   apiError,
-  getImageBucket,
   getOwner,
   getWardrobeDb,
 } from "../../../lib/wardrobe-store";
-import { env } from "cloudflare:workers";
+import { getB2Object } from "../../../lib/b2-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -23,58 +22,25 @@ export async function GET(
     const db = await getWardrobeDb();
     const row = await db
       .prepare(
-        "SELECT image_key, image_type FROM wardrobe_items WHERE id = ? AND owner = ?",
+        "SELECT image_key, image_version, image_type FROM wardrobe_items WHERE id = ? AND owner = ?",
       )
       .bind(id, owner)
-      .first<{ image_key: string; image_type: string }>();
+      .first<{ image_key: string; image_version: string; image_type: string }>();
 
     if (!row) return new Response("Image not found", { status: 404 });
-    const url = new URL(request.url);
-    const requestedWidth = Number(url.searchParams.get("w") || 640);
-    const widths = [160, 320, 640, 960, 1600];
-    const width = widths.reduce((closest, candidate) =>
-      Math.abs(candidate - requestedWidth) < Math.abs(closest - requestedWidth)
-        ? candidate
-        : closest,
-    );
-    const shouldTransform = url.searchParams.get("original") !== "1";
-    const cache = await caches.open("trove-image-variants-v1");
-    const cacheKey = new Request(
-      new URL(`/api/images/${id}?w=${width}`, url.origin).toString(),
-    );
-
-    if (shouldTransform) {
-      const cached = await cache.match(cacheKey);
-      if (cached) return cached;
-    }
-
-    const object = await getImageBucket().get(row.image_key);
+    const object = await getB2Object(row.image_key, row.image_version);
     if (!object) return new Response("Image not found", { status: 404 });
-
-    if (shouldTransform) {
-      const transformation = await env.IMAGES
-        .input(object.body)
-        .transform({ width, fit: "scale-down" })
-        .output({ format: "image/webp", quality: 82 });
-      const transformed = transformation.response();
-      const response = new Response(transformed.body, {
-        headers: {
-          "Content-Type": "image/webp",
-          "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-          "X-Image-Variant": `${width}w-webp`,
-        },
-      });
-      await cache.put(cacheKey, response.clone());
-      return response;
-    }
-
-    return new Response(object.body, {
-      headers: {
-        "Content-Type": row.image_type,
-        "Cache-Control": "private, max-age=86400",
-        ETag: object.httpEtag,
-      },
+    const headers = new Headers({
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "Content-Type": row.image_type,
+      "X-Content-Type-Options": "nosniff",
     });
+    const contentLength = object.headers.get("content-length");
+    const etag = object.headers.get("etag");
+    if (contentLength) headers.set("Content-Length", contentLength);
+    if (etag) headers.set("ETag", etag);
+
+    return new Response(object.body, { headers });
   } catch (error) {
     return apiError(error);
   }

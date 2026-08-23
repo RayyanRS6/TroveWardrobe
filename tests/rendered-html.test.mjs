@@ -17,9 +17,25 @@ test("deployment config binds private wardrobe storage", async () => {
   assert.equal(config.preview_urls, false);
   assert.equal(config.access.dev.identity.email, "local@trove.app");
   assert.equal(config.d1_databases[0].binding, "DB");
-  assert.equal(config.r2_buckets[0].binding, "WARDROBE_IMAGES");
-  assert.equal(config.r2_buckets[0].bucket_name, "trove-wardrobe-images");
-  assert.equal(config.images.binding, "IMAGES");
+  assert.equal(config.r2_buckets, undefined);
+  assert.equal(config.images, undefined);
+  assert.equal(config.vars.B2_STORAGE_LIMIT_BYTES, "9000000000");
+  assert.match(config.vars.B2_ENDPOINT, /^replace-with-/);
+  assert.match(config.vars.B2_BUCKET_NAME, /^replace-with-/);
+});
+
+test("B2 integration keeps images private and deletes exact versions", async () => {
+  const [storage, schema] = await Promise.all([
+    readFile("app/lib/b2-storage.ts", "utf8"),
+    readFile("db/schema.ts", "utf8"),
+  ]);
+
+  assert.match(storage, /service: "s3"/);
+  assert.match(storage, /x-amz-server-side-encryption/);
+  assert.match(storage, /versionId/);
+  assert.match(storage, /B2_APPLICATION_KEY/);
+  assert.match(schema, /imageVersion/);
+  assert.match(schema, /imageSize/);
 });
 
 test("production requests fail closed without Cloudflare Access", async () => {
