@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { B2StorageError } from "./b2-storage";
+import { ImageProcessingError } from "./image-processing";
 
 export type WardrobeItemRow = {
   id: number;
@@ -79,6 +80,24 @@ export function apiError(error: unknown) {
     return Response.json(
       { error: "Image storage is temporarily unavailable. Please try again." },
       { status: error.status === 503 ? 503 : 502 },
+    );
+  }
+  if (error instanceof ImageProcessingError) {
+    console.error(
+      JSON.stringify({
+        message: "Cloudflare image optimization failed",
+        error: error.message,
+        code: error.code,
+      }),
+    );
+    const limitReached = error.code === 9422;
+    return Response.json(
+      {
+        error: limitReached
+          ? "The monthly free image-processing limit has been reached."
+          : "This image could not be optimized. Please try another image.",
+      },
+      { status: limitReached ? 429 : 502 },
     );
   }
   console.error(

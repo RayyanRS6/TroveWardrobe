@@ -6,11 +6,13 @@ Trove uses only services that can run without a payment card:
 | --- | --- | --- |
 | Cloudflare Workers Free | React app and private API | Stops at the free daily request limit |
 | Cloudflare D1 Free | Clothes, categories, outfits, and B2 object metadata | Stops at free limits |
+| Cloudflare Images Free | Resizes and converts each uploaded photo once | Rejects new transformations at the free limit; no overage charge |
 | Backblaze B2 | Private encrypted image objects | First 10 GB free; app stops uploads at 9 GB |
 | Cloudflare Access | Email login and default-deny privacy | Worker also fails closed without identity |
 
-Images are never stored in D1. D1 stores a random B2 object key, the exact B2
-version ID, MIME type, and byte size. Saving the version ID lets Trove
+Cloudflare Images converts each accepted upload to a 1600px WebP before it is
+stored in B2. Images are never stored in D1. D1 stores a random B2 object key,
+the exact B2 version ID, MIME type, and byte size. Saving the version ID lets Trove
 permanently delete the exact B2 object rather than leaving a hidden version that
 continues to consume storage.
 
@@ -19,7 +21,8 @@ continues to consume storage.
 - D1 database `trove-wardrobe`: created in APAC; migrations 0000-0005 applied.
 - Backblaze B2 private bucket: needs to be created in your personal B2 account.
 - Worker deployment: intentionally disabled until B2 and Access are configured.
-- No R2 subscription or Cloudflare Images binding is required.
+- Cloudflare Images Free binding: configured for upload-time optimization.
+- No R2 subscription is required.
 
 ## 1. Create the private B2 bucket
 
@@ -83,6 +86,11 @@ npm test
 npx wrangler deploy --dry-run --config wrangler.jsonc
 ```
 
+The Images Free plan currently allows 5,000 unique transformations each month.
+Trove performs one transformation when a photo is uploaded and does not
+transform it again during normal app loads. If the free limit is reached,
+Cloudflare rejects the upload instead of charging an overage.
+
 ## 6. Protect and publish
 
 Keep `workers_dev` and preview URLs disabled until Cloudflare Access permits only
@@ -98,8 +106,9 @@ After Access is configured, enable the `workers.dev` route, deploy, and verify:
 
 ## Caching and request use
 
-The API loads small metadata records from D1. Images are streamed from private
-B2 through the authenticated Worker. Image URLs are versioned and returned with
+The API loads small metadata records from D1. Already-optimized images are
+streamed from private B2 through the authenticated Worker. Image URLs are
+versioned and returned with
 `private, max-age=31536000, immutable`; lazy loading and the local service-worker
 cache mean repeat views normally use the device copy instead of B2.
 

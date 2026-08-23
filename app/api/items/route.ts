@@ -10,6 +10,7 @@ import {
   getB2StorageLimitBytes,
   putB2Object,
 } from "../../lib/b2-storage";
+import { optimizeWardrobeImage } from "../../lib/image-processing";
 
 export const dynamic = "force-dynamic";
 
@@ -71,14 +72,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const imageBytes = await image.arrayBuffer();
-    const detectedImage = detectImageType(new Uint8Array(imageBytes));
-    if (!detectedImage) {
+    const signature = new Uint8Array(await image.slice(0, 12).arrayBuffer());
+    if (!isSupportedImage(signature)) {
       return Response.json(
         { error: "The selected file is not a valid JPG, PNG, WebP, or AVIF image." },
         { status: 400 },
       );
     }
+
+    const optimizedImage = await optimizeWardrobeImage(image.stream());
+    const imageBytes = optimizedImage.bytes;
 
     const db = getWardrobeDb();
     const usage = await db
@@ -92,11 +95,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const storedKey = `clothes/${crypto.randomUUID()}.${detectedImage.extension}`;
+    const storedKey = `clothes/${crypto.randomUUID()}.${optimizedImage.extension}`;
     const imageVersion = await putB2Object(
       storedKey,
       imageBytes,
-      detectedImage.contentType,
+      optimizedImage.contentType,
     );
     uploadedKey = storedKey;
     uploadedVersion = imageVersion;
@@ -126,7 +129,7 @@ export async function POST(request: Request) {
         season,
         storedKey,
         imageVersion,
-        detectedImage.contentType,
+        optimizedImage.contentType,
         imageBytes.byteLength,
         imageBytes.byteLength,
         storageLimit,
@@ -166,14 +169,14 @@ export async function POST(request: Request) {
   }
 }
 
-function detectImageType(bytes: Uint8Array) {
+function isSupportedImage(bytes: Uint8Array) {
   if (
     bytes.length >= 3 &&
     bytes[0] === 0xff &&
     bytes[1] === 0xd8 &&
     bytes[2] === 0xff
   ) {
-    return { contentType: "image/jpeg", extension: "jpg" } as const;
+    return true;
   }
   if (
     bytes.length >= 8 &&
@@ -186,21 +189,21 @@ function detectImageType(bytes: Uint8Array) {
     bytes[6] === 0x1a &&
     bytes[7] === 0x0a
   ) {
-    return { contentType: "image/png", extension: "png" } as const;
+    return true;
   }
   if (
     bytes.length >= 12 &&
     String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
     String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
   ) {
-    return { contentType: "image/webp", extension: "webp" } as const;
+    return true;
   }
   if (
     bytes.length >= 12 &&
     String.fromCharCode(...bytes.slice(4, 8)) === "ftyp" &&
     ["avif", "avis"].includes(String.fromCharCode(...bytes.slice(8, 12)))
   ) {
-    return { contentType: "image/avif", extension: "avif" } as const;
+    return true;
   }
-  return null;
+  return false;
 }

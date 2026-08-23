@@ -27,6 +27,9 @@
       "migrations_dir": "drizzle"
     }
   ],
+  "images": {
+    "binding": "IMAGES"
+  },
   "vars": {
     "B2_ENDPOINT": "replace-with-your-b2-s3-endpoint",
     "B2_BUCKET_NAME": "replace-with-your-private-b2-bucket",

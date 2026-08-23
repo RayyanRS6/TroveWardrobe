@@ -27,6 +27,9 @@ export default defineConfig(async ({ mode }) => {
         database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
       },
     ],
+    images: {
+      binding: "IMAGES",
+    },
     vars: {
       B2_ENDPOINT:
         localEnv.B2_ENDPOINT ?? "replace-with-your-b2-s3-endpoint",

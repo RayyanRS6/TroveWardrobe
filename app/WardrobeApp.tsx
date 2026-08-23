@@ -120,34 +120,6 @@ async function readCache(): Promise<CachedWardrobe | null> {
   }
 }
 
-async function optimizedImage(file: File) {
-  if (file.size < 900_000) return file;
-
-  try {
-    const bitmap = await createImageBitmap(file);
-    const maxEdge = 1600;
-    const ratio = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * ratio);
-    canvas.height = Math.round(bitmap.height * ratio);
-    const context = canvas.getContext("2d");
-    if (!context) return file;
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/webp", 0.82),
-    );
-    return blob
-      ? new File([blob], `${file.name.replace(/\.[^.]+$/, "")}.webp`, {
-          type: "image/webp",
-        })
-      : file;
-  } catch {
-    return file;
-  }
-}
-
 function plural(value: number, singular: string, multiple = `${singular}s`) {
   return `${value} ${value === 1 ? singular : multiple}`;
 }
@@ -286,11 +258,10 @@ export default function WardrobeApp() {
     setError(null);
   }
 
-  async function selectImage(file?: File) {
+  function selectImage(file?: File) {
     if (!file) return;
-    const prepared = await optimizedImage(file);
-    setImageFile(prepared);
-    setImagePreview(URL.createObjectURL(prepared));
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
   }
 
   async function addItem(event: FormEvent<HTMLFormElement>) {

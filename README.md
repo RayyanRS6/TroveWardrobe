@@ -8,6 +8,7 @@ vinext, and Cloudflare Workers.
 - Cloudflare Workers hosts the web app and API.
 - D1 stores clothing, custom categories, outfits, and private B2 object metadata.
 - A private Backblaze B2 bucket stores encrypted clothing photos.
+- Cloudflare Images converts each upload to a 1600px WebP before B2 storage.
 - The Worker signs B2 S3 requests; B2 credentials never reach the browser.
 - Worker-level Cloudflare Access protects the app and its API.
 - Browser caching, lazy loading, IndexedDB, and the service worker reduce repeat
