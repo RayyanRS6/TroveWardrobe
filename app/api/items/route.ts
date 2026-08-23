@@ -78,7 +78,8 @@ export async function POST(request: Request) {
     storedKey = `${crypto.randomUUID()}.${extension}`;
 
     const bucket = getImageBucket();
-    await bucket.put(storedKey, image.stream(), {
+    const imageBytes = await image.arrayBuffer();
+    await bucket.put(storedKey, imageBytes, {
       httpMetadata: { contentType: image.type },
       customMetadata: { owner },
     });

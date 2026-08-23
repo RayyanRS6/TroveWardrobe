@@ -1,11 +1,5 @@
 import { env } from "cloudflare:workers";
 
-type WardrobeEnv = {
-  DB?: D1Database;
-  WARDROBE_IMAGES?: R2Bucket;
-  AUTH_BYPASS_EMAIL?: string;
-};
-
 export type WardrobeItemRow = {
   id: number;
   owner: string;
@@ -27,14 +21,8 @@ export type OutfitRow = {
   created_at: string;
 };
 
-function runtimeEnv() {
-  return env as unknown as WardrobeEnv;
-}
-
 export function getOwner(request: Request) {
-  const email =
-    request.headers.get("cf-access-authenticated-user-email") ||
-    runtimeEnv().AUTH_BYPASS_EMAIL;
+  const email = request.headers.get("cf-access-authenticated-user-email");
 
   if (!email?.trim()) throw new WardrobeAuthError();
   return email.trim().toLowerCase();
@@ -47,64 +35,11 @@ export class WardrobeAuthError extends Error {
 }
 
 export function getImageBucket() {
-  const bucket = runtimeEnv().WARDROBE_IMAGES;
-  if (!bucket) {
-    throw new Error("Wardrobe image storage is not available.");
-  }
-  return bucket;
+  return env.WARDROBE_IMAGES;
 }
 
-export async function getWardrobeDb() {
-  const db = runtimeEnv().DB;
-  if (!db) {
-    throw new Error("Wardrobe database is not available.");
-  }
-
-  await db.batch([
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS wardrobe_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        owner TEXT NOT NULL,
-        name TEXT NOT NULL,
-        category TEXT NOT NULL,
-        color TEXT NOT NULL DEFAULT '',
-        season TEXT NOT NULL DEFAULT 'All season',
-        image_key TEXT NOT NULL,
-        image_type TEXT NOT NULL DEFAULT 'image/webp',
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS outfits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        owner TEXT NOT NULL,
-        name TEXT NOT NULL,
-        occasion TEXT NOT NULL DEFAULT 'Everyday',
-        item_ids TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS wardrobe_categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        owner TEXT NOT NULL,
-        name TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(owner, name)
-      )
-    `),
-    db.prepare(
-      "CREATE INDEX IF NOT EXISTS wardrobe_items_owner_idx ON wardrobe_items (owner, created_at)",
-    ),
-    db.prepare(
-      "CREATE INDEX IF NOT EXISTS outfits_owner_idx ON outfits (owner, created_at)",
-    ),
-    db.prepare(
-      "CREATE INDEX IF NOT EXISTS wardrobe_categories_owner_idx ON wardrobe_categories (owner, name)",
-    ),
-  ]);
-
-  return db;
+export function getWardrobeDb() {
+  return env.DB;
 }
 
 export function itemResponse(row: WardrobeItemRow) {
@@ -143,8 +78,14 @@ export function apiError(error: unknown) {
   if (error instanceof WardrobeAuthError) {
     return Response.json({ error: error.message }, { status: 401 });
   }
-  const message =
-    error instanceof Error ? error.message : "Something unexpected happened.";
-  console.error(error);
-  return Response.json({ error: message }, { status: 500 });
+  console.error(
+    JSON.stringify({
+      message: "wardrobe request failed",
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  return Response.json(
+    { error: "Something unexpected happened. Please try again." },
+    { status: 500 },
+  );
 }

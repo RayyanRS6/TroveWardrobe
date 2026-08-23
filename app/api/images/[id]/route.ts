@@ -38,7 +38,7 @@ export async function GET(
         : closest,
     );
     const shouldTransform = url.searchParams.get("original") !== "1";
-    const cache = caches.default;
+    const cache = await caches.open("trove-image-variants-v1");
     const cacheKey = new Request(
       new URL(`/api/images/${id}?w=${width}`, url.origin).toString(),
     );
@@ -51,24 +51,12 @@ export async function GET(
     const object = await getImageBucket().get(row.image_key);
     if (!object) return new Response("Image not found", { status: 404 });
 
-    const images = (env as unknown as {
-      IMAGES?: {
-        input(stream: ReadableStream): {
-          transform(options: Record<string, unknown>): {
-            output(options: { format: "image/webp"; quality: number }): {
-              response(): Promise<Response>;
-            };
-          };
-        };
-      };
-    }).IMAGES;
-
-    if (shouldTransform && images) {
-      const transformed = await images
+    if (shouldTransform) {
+      const transformation = await env.IMAGES
         .input(object.body)
-        .transform({ width, fit: "cover" })
-        .output({ format: "image/webp", quality: 82 })
-        .response();
+        .transform({ width, fit: "scale-down" })
+        .output({ format: "image/webp", quality: 82 });
+      const transformed = transformation.response();
       const response = new Response(transformed.body, {
         headers: {
           "Content-Type": "image/webp",
