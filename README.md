@@ -1,14 +1,14 @@
 # Trove Wardrobe
 
 Trove is a private, mobile-first wardrobe organizer: photograph your clothes,
-tag them by category, colour and season, and combine them into outfits. It is a
-single-user app locked behind one password.
+sort them into categories you manage, note their colour, and combine them into
+outfits. It is a single-user app locked behind one password.
 
 ## Tech stack
 
 | Layer | Technology |
 | --- | --- |
-| UI | React 19 + TypeScript, plain CSS (light and dark themes), lucide-react icons |
+| UI | React 19 + TypeScript, plain CSS; plum (#1F0818) and blush theme in light and dark; a small custom icon set |
 | Fonts | DM Serif Display (headings) and DM Sans (text), self-hosted, SIL Open Font License |
 | Framework | Next.js App Router API via [vinext](https://github.com/cloudflare/vinext) 1.0 on Vite 8 |
 | Hosting | Cloudflare Workers (free plan, `workers.dev` URL) |

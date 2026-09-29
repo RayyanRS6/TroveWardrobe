@@ -45,17 +45,17 @@ every Worker URL on the account).
 ## 3. Later deploys and changes
 
 Pushing to `main` deploys automatically through Cloudflare Workers Builds
-(Worker `trove` > Settings > Build), configured as:
+(Worker `trove` > Settings > Build): build command `npm run build`, deploy
+command `npx wrangler deploy`. Builds need no secrets: the Worker keeps its
+own.
 
-| Setting | Value |
-| --- | --- |
-| Branch | `main` |
-| Build command | `npm run build` |
-| Deploy command | `npx wrangler d1 migrations apply trove-wardrobe --remote && npx wrangler deploy` |
-| Build variable | `NODE_VERSION` = `22.18.0` |
+Database migrations are not part of the build. Apply them from this computer
+with `npm run db:migrate:remote`, ordered so the live code never breaks:
+additive changes (new tables or columns) before pushing the code that uses
+them; destructive ones (dropping a column) only after the code that stopped
+using it is live.
 
-Builds need no secrets: the Worker keeps its own. To deploy from this
-computer instead:
+To deploy from this computer instead:
 
 | Task | Command |
 | --- | --- |
