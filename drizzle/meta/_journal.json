@@ -64,6 +64,20 @@
       "when": 1790681475480,
       "tag": "0008_single_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790704604747,
+      "tag": "0009_managed_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790704613715,
+      "tag": "0010_drop_season",
+      "breakpoints": true
     }
   ]
 }

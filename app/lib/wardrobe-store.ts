@@ -6,9 +6,8 @@ import {
 } from "./auth";
 import { B2StorageError } from "./b2-storage";
 import { ImageProcessingError } from "./image-processing";
-import { RequestError } from "./wardrobe-input";
+import { cleanText, RequestError } from "./wardrobe-input";
 import {
-  PRESET_CATEGORIES,
   type CategoryCount,
   type Outfit,
   type WardrobeItem,
@@ -25,7 +24,6 @@ export type WardrobeItemRow = {
   name: string;
   category: string;
   color: string;
-  season: string;
   image_key: string;
   image_version: string;
   thumb_key: string;
@@ -34,7 +32,7 @@ export type WardrobeItemRow = {
 };
 
 export const ITEM_COLUMNS =
-  "id, name, category, color, season, image_key, image_version, thumb_key, thumb_version, created_at";
+  "id, name, category, color, image_key, image_version, thumb_key, thumb_version, created_at";
 
 export type OutfitRow = {
   id: number;
@@ -119,7 +117,6 @@ export function itemResponse(row: WardrobeItemRow): WardrobeItem {
     name: row.name,
     category: row.category,
     color: row.color,
-    season: row.season,
     imageUrl: `/api/images/${row.id}?v=${imageTag(row)}`,
     thumbUrl: `/api/images/${row.id}?size=thumb&v=${thumbTag(row)}`,
     createdAt: isoTimestamp(row.created_at),
@@ -156,57 +153,73 @@ export async function storageBytesUsed(db: D1Database) {
   return usage?.bytes_used ?? 0;
 }
 
-const categoryKey = (value: string) => value.toLowerCase();
-const presetByKey = new Map<string, string>(
-  PRESET_CATEGORIES.map((preset) => [categoryKey(preset), preset]),
-);
+// Categories are one list per owner (the `categories` table), matched
+// case-insensitively. Every piece's category is on that list in the list's
+// spelling: item writes add a missing category in the same D1 batch.
 
-/**
- * Item categories grouped case-insensitively and sorted by name. A group is
- * named by its preset spelling, else by its most-used spelling.
- */
-export async function loadCategoryCounts(
-  db: D1Database,
-  owner: string,
-  excludeItemId?: number,
-): Promise<CategoryCount[]> {
+/** Every category with its piece count, sorted by name. */
+export async function loadCategories(db: D1Database, owner: string): Promise<CategoryCount[]> {
+  // Counts the pieces in one pass, then joins: joining pieces to categories
+  // directly would read every piece once per category. The SQL order breaks
+  // ties in the case-insensitive sort below ("Écharpes", "écharpes").
   const result = await db
     .prepare(
-      `SELECT category, COUNT(*) AS count, MIN(id) AS first_id
-       FROM wardrobe_items
-       WHERE owner = ? AND id <> ?
-       GROUP BY category`,
+      `SELECT categories.name AS name, COALESCE(used.count, 0) AS count
+       FROM categories
+       LEFT JOIN (
+         SELECT lower(category) AS name_key, COUNT(*) AS count
+         FROM wardrobe_items WHERE owner = ?1
+         GROUP BY name_key
+       ) AS used ON used.name_key = lower(categories.name)
+       WHERE categories.owner = ?1
+       ORDER BY categories.name`,
     )
-    .bind(owner, excludeItemId ?? 0)
-    .all<{ category: string; count: number; first_id: number }>();
-
-  const groups = new Map<string, { name: string; count: number; best: number; firstId: number }>();
-  for (const row of result.results) {
-    const key = categoryKey(row.category);
-    const group = groups.get(key);
-    if (!group) {
-      groups.set(key, { name: row.category, count: row.count, best: row.count, firstId: row.first_id });
-      continue;
-    }
-    group.count += row.count;
-    if (row.count > group.best || (row.count === group.best && row.first_id < group.firstId)) {
-      Object.assign(group, { name: row.category, best: row.count, firstId: row.first_id });
-    }
-  }
-
-  return [...groups.entries()]
-    .map(([key, group]) => ({ name: presetByKey.get(key) ?? group.name, count: group.count }))
-    .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+    .bind(owner)
+    .all<CategoryCount>();
+  return result.results.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
 }
 
-/** "shirts" becomes "Shirts": a preset or existing category's spelling wins. */
-export function canonicalCategory(value: string, existing: CategoryCount[]) {
-  const key = categoryKey(value);
+/**
+ * The category `value` names: the exact spelling first, since a name saved
+ * before the API tidied names may differ from another category only by
+ * spacing or by a non-ASCII letter's case; then the tidied value, matched
+ * case-insensitively.
+ */
+export function findCategory(value: string, categories: CategoryCount[]) {
+  const key = cleanText(value).toLowerCase();
   return (
-    presetByKey.get(key) ??
-    existing.find((category) => categoryKey(category.name) === key)?.name ??
-    value
+    categories.find((category) => category.name === value) ??
+    categories.find((category) => category.name.toLowerCase() === key)
   );
+}
+
+/** "shirts" becomes "Shirts": an existing category's spelling wins. */
+export function canonicalCategory(value: string, categories: CategoryCount[]) {
+  return findCategory(value, categories)?.name ?? value;
+}
+
+/**
+ * SQL for the listed spelling of a category. Binds (owner, name); batch it
+ * after addCategoryIfMissing so the category is there to find.
+ */
+export const LISTED_CATEGORY = "(SELECT name FROM categories WHERE owner = ? AND lower(name) = lower(?))";
+
+/**
+ * Adds `name` to the owner's categories unless one matches it
+ * case-insensitively. `onlyIf` (an SQL condition, with its values) repeats
+ * the condition of the write it is batched with, so a category is only
+ * created when that write goes through.
+ */
+export function addCategoryIfMissing(
+  db: D1Database,
+  owner: string,
+  name: string,
+  onlyIf: string,
+  onlyIfValues: (string | number)[],
+) {
+  return db
+    .prepare(`INSERT OR IGNORE INTO categories (owner, name) SELECT ?, ? WHERE ${onlyIf}`)
+    .bind(owner, name, ...onlyIfValues);
 }
 
 export function jsonError(status: number, error: string, code?: string) {

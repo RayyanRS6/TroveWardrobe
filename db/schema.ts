@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const wardrobeItems = sqliteTable(
   "wardrobe_items",
@@ -7,9 +7,9 @@ export const wardrobeItems = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     owner: text("owner").notNull(),
     name: text("name").notNull(),
+    // A managed category's name, in that category's spelling.
     category: text("category").notNull(),
     color: text("color").notNull().default(""),
-    season: text("season").notNull().default("All season"),
     imageKey: text("image_key").notNull(),
     imageVersion: text("image_version").notNull().default(""),
     imageType: text("image_type").notNull().default("image/webp"),
@@ -22,6 +22,22 @@ export const wardrobeItems = sqliteTable(
   },
   (table) => [
     index("wardrobe_items_owner_idx").on(table.owner, table.createdAt),
+  ],
+);
+
+// The owner's category list, including categories with no pieces yet.
+export const categories = sqliteTable(
+  "categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    // One spelling per name: SQLite's lower() folds ASCII letters, so
+    // "shirts" and "Shirts" collide.
+    uniqueIndex("categories_owner_name_unique").on(table.owner, sql`lower(${table.name})`),
   ],
 );
 

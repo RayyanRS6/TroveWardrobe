@@ -9,7 +9,6 @@ import {
   NAME_MAX,
   OCCASIONS,
   RESERVED_CATEGORY,
-  SEASONS,
 } from "./wardrobe-options";
 
 // Multipart overhead allowance on top of the photo itself.
@@ -184,13 +183,17 @@ export function validateName(value: string, kind: "piece" | "outfit") {
   return value;
 }
 
-export function validateCategory(value: string) {
-  if (!value) throw new RequestError(400, "Please choose a category.");
+export function validateCategory(value: string, empty = "Please choose a category.") {
+  if (!value) throw new RequestError(400, empty);
   if (value.length > CATEGORY_MAX) {
     throw new RequestError(400, `Categories can be at most ${CATEGORY_MAX} characters.`);
   }
   if (value.toLowerCase() === RESERVED_CATEGORY.toLowerCase()) {
     throw new RequestError(400, `"${RESERVED_CATEGORY}" is reserved. Please choose another category name.`);
+  }
+  // URLs resolve "." and ".." away, so /api/categories/.. could never delete it.
+  if (value === "." || value === "..") {
+    throw new RequestError(400, "Please choose another category name.");
   }
   return value;
 }
@@ -200,15 +203,6 @@ export function validateColor(value: string) {
     throw new RequestError(400, `Colours can be at most ${COLOR_MAX} characters.`);
   }
   return value;
-}
-
-/** One of SEASONS (matched case-insensitively, returned in canonical form). */
-export function validateSeason(value: string) {
-  const season = SEASONS.find((option) => option.toLowerCase() === value.toLowerCase());
-  if (!season) {
-    throw new RequestError(400, `Season must be one of: ${SEASONS.join(", ")}.`);
-  }
-  return season;
 }
 
 /** One of OCCASIONS (matched case-insensitively, returned in canonical form). */

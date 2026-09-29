@@ -1,10 +1,12 @@
 import {
+  addCategoryIfMissing,
   apiError,
   canonicalCategory,
   getWardrobeDb,
   ITEM_COLUMNS,
   itemResponse,
-  loadCategoryCounts,
+  LISTED_CATEGORY,
+  loadCategories,
   NO_STORE,
   requireOwner,
   type WardrobeItemRow,
@@ -17,7 +19,6 @@ import {
   validateColor,
   validateImage,
   validateName,
-  validateSeason,
 } from "../../lib/wardrobe-input";
 import {
   assertPhotoFits,
@@ -25,7 +26,6 @@ import {
   storageFull,
   storePhoto,
 } from "../../lib/wardrobe-photos";
-import { DEFAULT_SEASON } from "../../lib/wardrobe-options";
 
 export const dynamic = "force-dynamic";
 
@@ -67,51 +67,50 @@ async function createItem(request: Request) {
     const name = validateName(formText(form, "name", "Name") ?? "", "piece");
     const categoryInput = validateCategory(formText(form, "category", "Category") ?? "");
     const color = validateColor(formText(form, "color", "Colour") ?? "");
-    const seasonInput = formText(form, "season", "Season");
-    const season = seasonInput ? validateSeason(seasonInput) : DEFAULT_SEASON;
     const image = await validateImage(form.get("image"));
 
     const db = getWardrobeDb();
-    const category = canonicalCategory(
-      categoryInput,
-      await loadCategoryCounts(db, owner),
-    );
+    const category = canonicalCategory(categoryInput, await loadCategories(db, owner));
 
     const storageLimit = await assertPhotoFits(db, image.size);
     const photo = await storePhoto(image, uploaded);
 
-    // Re-checks the limit with the real sizes, atomically with the insert.
-    const row = await db
-      .prepare(
-        `INSERT INTO wardrobe_items
-          (owner, name, category, color, season,
-           image_key, image_version, image_type, image_size,
-           thumb_key, thumb_version, thumb_size)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-         WHERE (
-           SELECT COALESCE(SUM(image_size + thumb_size), 0)
-           FROM wardrobe_items
-         ) + ? <= ?
-         RETURNING ${ITEM_COLUMNS}`,
-      )
-      .bind(
-        owner,
-        name,
-        category,
-        color,
-        season,
-        photo.imageKey,
-        photo.imageVersion,
-        photo.imageType,
-        photo.imageSize,
-        photo.thumbKey,
-        photo.thumbVersion,
-        photo.thumbSize,
-        photo.imageSize + photo.thumbSize,
-        storageLimit,
-      )
-      .first<WardrobeItemRow>();
+    // Re-checks the limit with the real sizes, atomically with the insert. A
+    // new category joins the list in the same transaction, only with the piece.
+    const fits = `(
+      SELECT COALESCE(SUM(image_size + thumb_size), 0) FROM wardrobe_items
+    ) + ? <= ?`;
+    const quota = [photo.imageSize + photo.thumbSize, storageLimit];
+    const [, inserted] = await db.batch<WardrobeItemRow>([
+      addCategoryIfMissing(db, owner, category, fits, quota),
+      db
+        .prepare(
+          `INSERT INTO wardrobe_items
+            (owner, name, category, color,
+             image_key, image_version, image_type, image_size,
+             thumb_key, thumb_version, thumb_size)
+           SELECT ?, ?, ${LISTED_CATEGORY}, ?, ?, ?, ?, ?, ?, ?, ?
+           WHERE ${fits}
+           RETURNING ${ITEM_COLUMNS}`,
+        )
+        .bind(
+          owner,
+          name,
+          owner,
+          category,
+          color,
+          photo.imageKey,
+          photo.imageVersion,
+          photo.imageType,
+          photo.imageSize,
+          photo.thumbKey,
+          photo.thumbVersion,
+          photo.thumbSize,
+          ...quota,
+        ),
+    ]);
 
+    const row = inserted.results[0];
     if (!row) throw storageFull();
     uploaded.length = 0;
     return Response.json({ item: itemResponse(row) }, { status: 201, headers: NO_STORE });

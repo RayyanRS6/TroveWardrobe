@@ -3,14 +3,42 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { createSessionToken, verifySessionToken } from "../app/lib/auth.ts";
+import { PRESET_CATEGORIES, UNCATEGORIZED } from "../app/lib/wardrobe-options.ts";
 
 const CONFIG = "dist/server/wrangler.json";
 const WRANGLER = "node_modules/wrangler/bin/wrangler.js";
+// Rows saved before migration 0009 (managed categories), when the API only
+// trimmed names, then rows the previous Worker saves after 0009 and before
+// 0010 (which drops seasons). Photos are never fetched; image_size 0 keeps
+// the storage meter at zero.
+const LEGACY_ROWS = [
+  {
+    beforeMigration: 9,
+    sql: `
+      INSERT INTO wardrobe_items (owner, name, category, color, season, image_key) VALUES
+        ('owner', 'Oxford shirt', 'shirts', 'Blue', 'Summer', 'clothes/legacy-1.webp'),
+        ('owner', 'Silk scarf', 'Scarves', 'Red', 'Winter', 'clothes/legacy-2.webp'),
+        ('owner', 'Wool scarf', 'scarves', 'Grey', 'All season', 'clothes/legacy-3.webp'),
+        ('owner', 'Linen suit', 'Pant  coat', 'Beige', 'Summer', 'clothes/legacy-4.webp'),
+        ('owner', 'Tweed suit', 'pant' || char(9) || 'coat', 'Brown', 'Winter', 'clothes/legacy-5.webp'),
+        ('owner', 'Pashmina', 'Écharpes', 'Cream', 'Winter', 'clothes/legacy-6.webp'),
+        ('owner', 'Cashmere wrap', 'écharpes', 'Camel', 'Winter', 'clothes/legacy-7.webp');
+    `,
+  },
+  {
+    beforeMigration: 10,
+    sql: `
+      INSERT INTO wardrobe_items (owner, name, category, color, season, image_key) VALUES
+        ('owner', 'Block-print kurta', 'kurtas', 'Indigo', 'Summer', 'clothes/legacy-8.webp'),
+        ('owner', 'Cotton dupatta', 'Dupattas', 'White', 'Summer', 'clothes/legacy-9.webp');
+    `,
+  },
+];
 const PASSWORD = `test-${randomBytes(12).toString("base64url")}`;
 const LOCKED_IP = "203.0.113.7";
 const OWNER_IP = "198.51.100.20";
@@ -44,21 +72,53 @@ let worker;
 let origin;
 let sessionCookie;
 
+function wrangler(...args) {
+  const result = spawnSync(process.execPath, [WRANGLER, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false", WRANGLER_WRITE_LOGS: "false" },
+  });
+  assert.equal(result.status, 0, `wrangler ${args.slice(0, 2).join(" ")} failed:\n${result.stdout}\n${result.stderr}`);
+}
+
+/**
+ * For each LEGACY_ROWS entry, migrates the test D1 up to (not including) its
+ * migration and saves its rows; then applies the rest, as production will.
+ */
+async function migrateWithLegacyRows() {
+  const config = JSON.parse(await readFile(CONFIG, "utf8"));
+  const [database] = config.d1_databases;
+  const migrationsDir = path.resolve(path.dirname(CONFIG), database.migrations_dir);
+  const local = ["--local", "--persist-to", stateDir];
+
+  for (const { beforeMigration, sql } of LEGACY_ROWS) {
+    const legacyDir = path.join(stateDir, `migrations-before-${beforeMigration}`);
+    await mkdir(legacyDir);
+    for (const file of await readdir(migrationsDir)) {
+      if (file.endsWith(".sql") && Number.parseInt(file, 10) < beforeMigration) {
+        await copyFile(path.join(migrationsDir, file), path.join(legacyDir, file));
+      }
+    }
+    const legacyConfig = path.join(stateDir, `wrangler-before-${beforeMigration}.json`);
+    await writeFile(
+      legacyConfig,
+      JSON.stringify({
+        name: config.name,
+        compatibility_date: config.compatibility_date,
+        d1_databases: [{ ...database, migrations_dir: legacyDir }],
+      }),
+    );
+    const legacyRows = path.join(stateDir, `rows-before-${beforeMigration}.sql`);
+    await writeFile(legacyRows, sql);
+
+    wrangler("d1", "migrations", "apply", database.database_name, ...local, "--config", legacyConfig);
+    wrangler("d1", "execute", database.database_name, ...local, "--config", legacyConfig, "--file", legacyRows);
+  }
+  wrangler("d1", "migrations", "apply", database.database_name, ...local, "--config", CONFIG);
+}
+
 before(async () => {
   stateDir = await mkdtemp(path.join(tmpdir(), "trove-worker-test-"));
-  const quietEnv = {
-    ...process.env,
-    CI: "1",
-    WRANGLER_SEND_METRICS: "false",
-    WRANGLER_WRITE_LOGS: "false",
-  };
-
-  const migrate = spawnSync(
-    process.execPath,
-    [WRANGLER, "d1", "migrations", "apply", "trove-wardrobe", "--local", "--persist-to", stateDir, "--config", CONFIG],
-    { encoding: "utf8", env: quietEnv },
-  );
-  assert.equal(migrate.status, 0, `D1 migrations failed:\n${migrate.stdout}\n${migrate.stderr}`);
+  await migrateWithLegacyRows();
 
   // An explicit env file keeps Wrangler from loading the real dist/server/.dev.vars.
   const envFile = path.join(stateDir, "test.env");
@@ -346,16 +406,82 @@ test("a session reaches the wardrobe API", async () => {
   const items = await send("/api/items", { headers: withSession() });
   assert.equal(items.status, 200);
   assert.equal(items.headers.get("cache-control"), "no-store");
-  assert.deepEqual(await items.json(), { items: [] });
+  assert.equal((await items.json()).items.length, 9, "the legacy rows");
 
   const outfits = await send("/api/outfits", { headers: withSession() });
   assert.deepEqual(await outfits.json(), { outfits: [] });
 
   const categories = await send("/api/categories", { headers: withSession() });
-  assert.deepEqual(await categories.json(), { categories: [] });
+  assert.equal(categories.status, 200);
+  assert.equal(categories.headers.get("cache-control"), "no-store");
+  assert.ok(Array.isArray((await categories.json()).categories));
 
   const usage = await send("/api/usage", { headers: withSession() });
   assert.deepEqual(await usage.json(), { bytesUsed: 0, limitBytes: 9_000_000_000 });
+});
+
+async function listItems() {
+  const response = await send("/api/items", { headers: withSession() });
+  assert.equal(response.status, 200);
+  return (await response.json()).items;
+}
+
+async function listCategories() {
+  const response = await send("/api/categories", { headers: withSession() });
+  assert.equal(response.status, 200);
+  return (await response.json()).categories;
+}
+
+/** {name: count} for a category list. */
+function counts(categories) {
+  return Object.fromEntries(categories.map(({ name, count }) => [name, count]));
+}
+
+function categoryOf(items, name) {
+  return items.find((item) => item.name === name)?.category;
+}
+
+const byName = (a, b) => a.localeCompare(b, "en", { sensitivity: "base" });
+
+test("migrations 0009 and 0010 list the presets and every category in use, and drop seasons", async () => {
+  const items = await listItems();
+  for (const item of items) {
+    assert.deepEqual(
+      Object.keys(item).sort(),
+      ["category", "color", "createdAt", "id", "imageUrl", "name", "thumbUrl"],
+    );
+  }
+  // Spellings that differ by case merge: the preset wins, then the earliest piece.
+  assert.equal(categoryOf(items, "Oxford shirt"), "Shirts");
+  assert.equal(categoryOf(items, "Silk scarf"), "Scarves");
+  assert.equal(categoryOf(items, "Wool scarf"), "Scarves");
+  // Untidy names saved when the API only trimmed them are tidied first.
+  assert.equal(categoryOf(items, "Linen suit"), "Pant coat");
+  assert.equal(categoryOf(items, "Tweed suit"), "Pant coat");
+  // SQLite folds only ASCII letters, so these stay two categories.
+  assert.equal(categoryOf(items, "Pashmina"), "Écharpes");
+  assert.equal(categoryOf(items, "Cashmere wrap"), "écharpes");
+  // Saved by the previous Worker after 0009: 0010 lists and respells them.
+  assert.equal(categoryOf(items, "Block-print kurta"), "Kurtas");
+  assert.equal(categoryOf(items, "Cotton dupatta"), "Dupattas");
+
+  const categories = await listCategories();
+  assert.deepEqual(
+    categories.map((category) => category.name),
+    // Names equal case-insensitively keep their code-point order.
+    [...PRESET_CATEGORIES, "Scarves", "Écharpes", "écharpes", "Dupattas"].sort().sort(byName),
+    "sorted by name, case-insensitively",
+  );
+  assert.deepEqual(counts(categories), {
+    ...Object.fromEntries(PRESET_CATEGORIES.map((name) => [name, 0])),
+    Shirts: 1,
+    "Pant coat": 2,
+    Kurtas: 1,
+    Scarves: 2,
+    Écharpes: 1,
+    écharpes: 1,
+    Dupattas: 1,
+  });
 });
 
 test("sessions older than a day are renewed; the 90-day cap holds", async () => {
@@ -517,11 +643,6 @@ test("uploads validate input and storage before any image processing", async () 
 
   await assertJsonError(await upload({ name: "", category: "Shirts" }, png), 400, "invalid_input");
   await assertJsonError(await upload({ name: "Shirt", category: "all" }, png), 400, "invalid_input");
-  await assertJsonError(
-    await upload({ name: "Shirt", category: "Shirts", season: "Monsoon" }, png),
-    400,
-    "invalid_input",
-  );
   await assertJsonError(await upload({ name: "Shirt", category: "Shirts" }), 400, "invalid_input");
   await assertJsonError(
     await upload(
@@ -549,10 +670,17 @@ test("uploads validate input and storage before any image processing", async () 
 
   // Valid photo, but Backblaze is not configured: 503 before Cloudflare Images.
   await assertJsonError(
-    await upload({ name: "Shirt", category: "shirts", season: "Summer" }, png),
+    await upload({ name: "Shirt", category: "shirts" }, png),
     503,
     "storage_unavailable",
   );
+  // A new category joins the list only with a saved piece.
+  await assertJsonError(
+    await upload({ name: "Kaftan", category: "Kaftans" }, png),
+    503,
+    "storage_unavailable",
+  );
+  assert.ok(!(await listCategories()).some((category) => category.name === "Kaftans"));
 
   const json = await send("/api/items", {
     method: "POST",
@@ -570,6 +698,180 @@ test("uploads validate input and storage before any image processing", async () 
     headers: withSession(sameOrigin()),
   });
   await assertJsonError(deleteMissing, 404, "not_found");
+});
+
+function postCategory(body, contentType = "application/json") {
+  return send("/api/categories", {
+    method: "POST",
+    headers: withSession(sameOrigin({ "Content-Type": contentType })),
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+function deleteCategory(name) {
+  return send(`/api/categories/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    headers: withSession(sameOrigin()),
+  });
+}
+
+function patchItem(id, fields) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.set(key, value);
+  return send(`/api/items/${id}`, { method: "PATCH", headers: withSession(sameOrigin()), body: form });
+}
+
+test("categories can be added: tidied, unique case-insensitively, never \"All\"", async () => {
+  const created = await postCategory({ name: "  Linen \t  sets " });
+  assert.equal(created.status, 201);
+  assert.equal(created.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await created.json(), { category: { name: "Linen sets", count: 0 } });
+
+  const longest = "x".repeat(40);
+  assert.equal((await postCategory({ name: longest })).status, 201);
+
+  const again = await assertJsonError(await postCategory({ name: "LINEN SETS" }), 409, "duplicate");
+  assert.match(again.error, /"Linen sets"/);
+  const preset = await assertJsonError(await postCategory({ name: "shirts" }), 409, "duplicate");
+  assert.match(preset.error, /"Shirts"/);
+
+  for (const name of ["All", "all", "", "   ", "x".repeat(41), "..", 7, null]) {
+    await assertJsonError(await postCategory({ name }), 400, "invalid_input");
+  }
+  await assertJsonError(await postCategory({}), 400, "invalid_input");
+  await assertJsonError(await postCategory("{not json"), 400, "invalid_input");
+  await assertJsonError(await postCategory("name=Linen", "text/plain"), 415, "unsupported_media_type");
+
+  const categories = await listCategories();
+  assert.equal(counts(categories)["Linen sets"], 0, "listed with no pieces");
+  assert.deepEqual(
+    categories.map((category) => category.name),
+    categories.map((category) => category.name).sort(byName),
+  );
+  assert.equal((await deleteCategory(longest)).status, 200);
+});
+
+test("deleting a category moves its pieces to Uncategorized", async () => {
+  // No pieces: nothing moves and Uncategorized is not needed.
+  const empty = await deleteCategory("Linen sets");
+  assert.equal(empty.status, 200);
+  // vinext widens a DELETE handler's Cache-Control; no-store survives.
+  assert.match(empty.headers.get("cache-control") ?? "", /\bno-store\b/);
+  assert.deepEqual(await empty.json(), { ok: true, moved: 0 });
+  let categories = counts(await listCategories());
+  assert.equal(categories["Linen sets"], undefined);
+  assert.equal(categories[UNCATEGORIZED], undefined);
+
+  // Matched case-insensitively.
+  const scarves = await deleteCategory("scarves");
+  assert.equal(scarves.status, 200);
+  assert.deepEqual(await scarves.json(), { ok: true, moved: 2 });
+  categories = counts(await listCategories());
+  assert.equal(categories.Scarves, undefined);
+  assert.equal(categories[UNCATEGORIZED], 2);
+  assert.equal(categories.Shirts, 1, "other categories keep their pieces");
+  const items = await listItems();
+  assert.equal(categoryOf(items, "Silk scarf"), UNCATEGORIZED);
+  assert.equal(categoryOf(items, "Wool scarf"), UNCATEGORIZED);
+  assert.equal(categoryOf(items, "Oxford shirt"), "Shirts");
+
+  await assertJsonError(await deleteCategory("Scarves"), 404, "not_found");
+  await assertJsonError(await deleteCategory("No such category"), 404, "not_found");
+
+  const full = await assertJsonError(await deleteCategory("uncategorized"), 409, "not_empty");
+  assert.equal(full.error, "Move these pieces to another category first.");
+  assert.equal(counts(await listCategories())[UNCATEGORIZED], 2);
+
+  // Names that need URL encoding.
+  for (const name of ["Tops/Blouses", "100% cotton", "Tops/Blouses 100%", "50%25 off", "Q&A #1?"]) {
+    assert.equal((await postCategory({ name })).status, 201, name);
+    const removed = await deleteCategory(name);
+    assert.equal(removed.status, 200, name);
+    assert.deepEqual(await removed.json(), { ok: true, moved: 0 }, name);
+  }
+});
+
+test("editing a piece's category uses the listed spelling or adds the category", async () => {
+  const items = await listItems();
+  const silk = items.find((item) => item.name === "Silk scarf");
+  const wool = items.find((item) => item.name === "Wool scarf");
+
+  const listed = await patchItem(wool.id, { category: "SHIRTS" });
+  assert.equal(listed.status, 200);
+  assert.equal((await listed.json()).item.category, "Shirts");
+
+  const added = await patchItem(silk.id, { category: "  Stoles " });
+  assert.equal(added.status, 200);
+  const item = (await added.json()).item;
+  assert.equal(item.category, "Stoles");
+  assert.equal(item.season, undefined);
+
+  let categories = counts(await listCategories());
+  assert.equal(categories.Shirts, 2);
+  assert.equal(categories.Stoles, 1);
+  assert.equal(categories[UNCATEGORIZED], 0);
+
+  // Empty now, so Uncategorized can go too.
+  const emptied = await deleteCategory(UNCATEGORIZED);
+  assert.equal(emptied.status, 200);
+  assert.deepEqual(await emptied.json(), { ok: true, moved: 0 });
+  assert.equal(counts(await listCategories())[UNCATEGORIZED], undefined);
+
+  await assertJsonError(await patchItem(silk.id, { category: "All" }), 400, "invalid_input");
+  // Seasons are gone: the field is ignored, leaving nothing to update.
+  await assertJsonError(await patchItem(silk.id, { season: "Winter" }), 400, "invalid_input");
+  // A failed edit adds no category.
+  await assertJsonError(await patchItem(424242, { category: "Ghosts" }), 404, "not_found");
+  categories = counts(await listCategories());
+  assert.equal(categories.Ghosts, undefined);
+});
+
+test("a category's exact name wins over another spelling of it", async () => {
+  // "écharpes" also matches "Écharpes" case-insensitively, but it is listed.
+  const wrap = (await listItems()).find((item) => item.name === "Cashmere wrap");
+  const kept = await patchItem(wrap.id, { category: "écharpes" });
+  assert.equal(kept.status, 200);
+  assert.equal((await kept.json()).item.category, "écharpes");
+
+  const removed = await deleteCategory("écharpes");
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), { ok: true, moved: 1 });
+  const categories = counts(await listCategories());
+  assert.equal(categories.écharpes, undefined);
+  assert.equal(categories.Écharpes, 1);
+  assert.equal(categories[UNCATEGORIZED], 1);
+  const items = await listItems();
+  assert.equal(categoryOf(items, "Pashmina"), "Écharpes");
+  assert.equal(categoryOf(items, "Cashmere wrap"), UNCATEGORIZED);
+});
+
+test("the categories API needs a session, and writes need the same origin", async () => {
+  await assertJsonError(await send("/api/categories"), 401, "unauthenticated");
+  const anonymousPost = await send("/api/categories", {
+    method: "POST",
+    headers: sameOrigin({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ name: "Hats" }),
+  });
+  await assertJsonError(anonymousPost, 401, "unauthenticated");
+  const anonymousDelete = await send("/api/categories/Shirts", { method: "DELETE", headers: sameOrigin() });
+  await assertJsonError(anonymousDelete, 401, "unauthenticated");
+
+  const crossSite = { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" };
+  const crossPost = await send("/api/categories", {
+    method: "POST",
+    headers: withSession({ ...crossSite, "Content-Type": "application/json" }),
+    body: JSON.stringify({ name: "Hats" }),
+  });
+  await assertJsonError(crossPost, 403, "cross_origin");
+  const crossDelete = await send("/api/categories/Shirts", {
+    method: "DELETE",
+    headers: withSession(crossSite),
+  });
+  await assertJsonError(crossDelete, 403, "cross_origin");
+
+  const categories = counts(await listCategories());
+  assert.equal(categories.Hats, undefined);
+  assert.equal(categories.Shirts, 2);
 });
 
 test("logout expires the cookie and clears site data", async () => {

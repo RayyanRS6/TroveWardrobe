@@ -1,10 +1,12 @@
 import {
+  addCategoryIfMissing,
   apiError,
   canonicalCategory,
   getWardrobeDb,
   ITEM_COLUMNS,
   itemResponse,
-  loadCategoryCounts,
+  LISTED_CATEGORY,
+  loadCategories,
   NO_STORE,
   requireOwner,
   type WardrobeItemRow,
@@ -19,7 +21,6 @@ import {
   validateColor,
   validateImage,
   validateName,
-  validateSeason,
 } from "../../../lib/wardrobe-input";
 import {
   assertPhotoFits,
@@ -49,7 +50,7 @@ function photoChanged() {
   );
 }
 
-/** Multipart with any of: name, category, color, season, image. */
+/** Multipart with any of: name, category, color, image. */
 export async function PATCH(request: Request, context: RouteContext) {
   // A new photo's upload, the update and the old photo's deletion (or the
   // rollback) finish even if the client disconnects.
@@ -84,20 +85,17 @@ async function updateItem(request: Request, context: RouteContext) {
 
     const name = formText(form, "name", "Name");
     if (name !== undefined) assign("name", validateName(name, "piece"));
-    const category = formText(form, "category", "Category");
+    const categoryInput = formText(form, "category", "Category");
+    const category =
+      categoryInput === undefined
+        ? undefined
+        : canonicalCategory(validateCategory(categoryInput), await loadCategories(db, owner));
     if (category !== undefined) {
-      assign(
-        "category",
-        canonicalCategory(
-          validateCategory(category),
-          await loadCategoryCounts(db, owner, id),
-        ),
-      );
+      assignments.push(`category = ${LISTED_CATEGORY}`);
+      values.push(owner, category);
     }
     const color = formText(form, "color", "Colour");
     if (color !== undefined) assign("color", validateColor(color));
-    const season = formText(form, "season", "Season");
-    if (season !== undefined) assign("season", validateSeason(season));
 
     // An untouched <input type="file"> submits an empty, unnamed file; an
     // empty text value also keeps the current photo.
@@ -137,14 +135,31 @@ async function updateItem(request: Request, context: RouteContext) {
           AND (SELECT COALESCE(SUM(image_size + thumb_size), 0) FROM wardrobe_items)
             - (image_size + thumb_size) + ? <= ?`
       : "";
-    const row = await db
+    const where = `id = ? AND owner = ?${quotaCheck}`;
+    const whereValues = [id, owner, ...(quota ? [existing.image_key, ...quota] : [])];
+    const update = db
       .prepare(
         `UPDATE wardrobe_items SET ${assignments.join(", ")}
-         WHERE id = ? AND owner = ?${quotaCheck}
+         WHERE ${where}
          RETURNING ${ITEM_COLUMNS}`,
       )
-      .bind(...values, id, owner, ...(quota ? [existing.image_key, ...quota] : []))
-      .first<WardrobeItemRow>();
+      .bind(...values, ...whereValues);
+    // A new category joins the list in the same transaction, only with the update.
+    const results = await db.batch<WardrobeItemRow>(
+      category === undefined
+        ? [update]
+        : [
+            addCategoryIfMissing(
+              db,
+              owner,
+              category,
+              `EXISTS (SELECT 1 FROM wardrobe_items WHERE ${where})`,
+              whereValues,
+            ),
+            update,
+          ],
+    );
+    const row = results[results.length - 1].results[0];
 
     if (!row) {
       const current = await db

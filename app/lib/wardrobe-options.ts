@@ -1,6 +1,7 @@
 // Shared wardrobe vocabulary, limits and API shapes. Imported by both the
 // browser UI and the API routes, so it must stay free of server imports.
 
+/** The category list a new wardrobe starts with (seeded by migration 0009). */
 export const PRESET_CATEGORIES = [
   "Shirts",
   "T-shirts",
@@ -20,8 +21,11 @@ export const PRESET_CATEGORIES = [
 /** The UI's "show everything" filter; no category may use this name. */
 export const RESERVED_CATEGORY = "All";
 
-export const SEASONS = ["All season", "Summer", "Winter", "Spring", "Autumn"] as const;
-export const DEFAULT_SEASON = "All season";
+/**
+ * Where a deleted category's pieces move. Created when first needed; it can
+ * itself be deleted only once it is empty.
+ */
+export const UNCATEGORIZED = "Uncategorized";
 
 export const OCCASIONS = ["Everyday", "Work", "Formal", "Casual", "Festive", "Travel"] as const;
 export const DEFAULT_OCCASION = "Everyday";
@@ -49,17 +53,15 @@ export const ACCEPTED_IMAGE_TYPES = [
 /** Value for an `<input type="file" accept>` attribute. */
 export const IMAGE_ACCEPT = [...ACCEPTED_IMAGE_TYPES, ".heic", ".heif"].join(",");
 
-export type Season = (typeof SEASONS)[number];
 export type Occasion = (typeof OCCASIONS)[number];
 
 /** GET/POST/PATCH /api/items */
 export type WardrobeItem = {
   id: number;
   name: string;
+  /** A category from GET /api/categories, in its spelling. */
   category: string;
   color: string;
-  /** One of SEASONS. */
-  season: string;
   /** Display photo (WebP, up to 1600 px wide). */
   imageUrl: string;
   /** Grid thumbnail (WebP, up to 480 px wide). */
@@ -78,10 +80,20 @@ export type Outfit = {
   createdAt: string;
 };
 
-/** GET /api/categories */
+/**
+ * GET /api/categories lists every category, pieces or not, sorted by name;
+ * POST /api/categories returns the new one with count 0.
+ */
 export type CategoryCount = {
   name: string;
+  /** Pieces in this category. */
   count: number;
+};
+
+/** DELETE /api/categories/:name (`moved` pieces went to UNCATEGORIZED). */
+export type CategoryDeleted = {
+  ok: true;
+  moved: number;
 };
 
 /** GET /api/usage */
