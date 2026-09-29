@@ -548,9 +548,15 @@ h3 {
   box-shadow: 0 0 0 8px var(--nav-bg);
 }
 
+/* 320px phones leave ~53px per tab: 10px (the iOS tab-bar size) fits
+   "Categories" without an ellipsis. */
 @media (max-width: 359.98px) {
+  .bottom-link {
+    padding: 0 1px;
+  }
+
   .bottom-link span {
-    font-size: 11px;
+    font-size: 10px;
   }
 }
 
@@ -1171,6 +1177,8 @@ h3 {
   max-height: calc(100dvh - 12px - env(safe-area-inset-top));
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Keep focused fields clear of the sticky header and Save bar. */
+  scroll-padding-block: 96px;
   border-radius: 28px 28px 0 0;
   background: var(--surface);
   box-shadow: var(--shadow);

@@ -38,7 +38,9 @@ npm run deploy:first
 `deploy:first` asks for the password you will use to open the app (twice,
 hidden), then deploys the Worker together with its secrets: the password hash,
 a new session secret and the Backblaze values from `.env`. Wrangler prints the
-app's `https://trove-wardrobe.<your-subdomain>.workers.dev` URL.
+app's `https://trove.<your-subdomain>.workers.dev` URL. The first deploy on a
+Cloudflare account asks you to register that subdomain (it becomes part of
+every Worker URL on the account).
 
 ## 3. Later deploys and changes
 
