@@ -1,0 +1,181 @@
+"use client";
+
+import { Check, Search, X } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { plural } from "../lib/client/format";
+import { OUTFIT_ITEMS_MAX, type WardrobeItem } from "../lib/wardrobe-options";
+import { Photo } from "./Photo";
+
+type PiecePickerProps = {
+  items: WardrobeItem[];
+  /** Chosen piece ids, in the order they were picked. */
+  selected: number[];
+  /** Adds or removes one piece (applied to the latest selection). */
+  onToggle: (id: number) => void;
+  onClear: () => void;
+  error?: string;
+  errorId: string;
+};
+
+/** The next selection after toggling `id`, never over OUTFIT_ITEMS_MAX. */
+export function toggledSelection(current: number[], id: number) {
+  if (current.includes(id)) return current.filter((selectedId) => selectedId !== id);
+  return current.length >= OUTFIT_ITEMS_MAX ? current : [...current, id];
+}
+
+function matches(item: WardrobeItem, needle: string) {
+  return [item.name, item.category, item.color, item.season].join(" ").toLowerCase().includes(needle);
+}
+
+/** Chooses up to OUTFIT_ITEMS_MAX pieces, with search and a strip of the chosen ones. */
+export function PiecePicker({ items, selected, onToggle, onClear, error, errorId }: PiecePickerProps) {
+  const id = useId();
+  const [query, setQuery] = useState("");
+  const [limitHit, setLimitHit] = useState(false);
+  const atLimit = selected.length >= OUTFIT_ITEMS_MAX;
+
+  const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const chosen = selected
+    .map((itemId) => byId.get(itemId))
+    .filter((item): item is WardrobeItem => Boolean(item));
+  const needle = query.trim().toLowerCase();
+  const visible = needle ? items.filter((item) => matches(item, needle)) : items;
+
+  function toggle(itemId: number) {
+    const adding = !selected.includes(itemId);
+    setLimitHit(adding && atLimit);
+    onToggle(itemId);
+  }
+
+  const countText = selected.length
+    ? `${plural(selected.length, "piece")} selected`
+    : "No pieces selected yet";
+
+  return (
+    <fieldset className="picker" aria-describedby={error ? errorId : `${id}-count`}>
+      <legend className="field-label">
+        Pieces
+        <span className="required-mark" aria-hidden="true">
+          *
+        </span>
+      </legend>
+
+      <div className="picker-heading">
+        <p id={`${id}-count`} aria-live="polite">
+          {countText}
+          <span className="picker-max"> · up to {OUTFIT_ITEMS_MAX}</span>
+        </p>
+        {selected.length > 0 && (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              setLimitHit(false);
+              onClear();
+            }}
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {chosen.length > 0 && (
+        <ul className="chosen-strip" aria-label="Chosen pieces">
+          {chosen.map((item) => (
+            <li key={item.id}>
+              <Photo src={item.thumbUrl} alt="" className="chosen-photo" iconSize={18} />
+              <button
+                type="button"
+                className="chosen-remove"
+                onClick={() => toggle(item.id)}
+                aria-label={`Remove ${item.name}`}
+                title={`Remove ${item.name}`}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {error && (
+        <p id={errorId} className="field-error">
+          {error}
+        </p>
+      )}
+
+      <div className="search-box search-box-compact">
+        <Search size={18} aria-hidden="true" />
+        <label htmlFor={`${id}-search`} className="visually-hidden">
+          Search your pieces
+        </label>
+        <input
+          id={`${id}-search`}
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search your pieces"
+          autoComplete="off"
+          enterKeyHint="search"
+          onKeyDown={(event) => {
+            // Enter in the search box must not submit the outfit.
+            if (event.key === "Enter") event.preventDefault();
+          }}
+        />
+        {query && (
+          <button
+            type="button"
+            className="icon-button icon-button-small"
+            onClick={() => {
+              setQuery("");
+              document.getElementById(`${id}-search`)?.focus();
+            }}
+            aria-label="Clear piece search"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      <p className="picker-status" role="status">
+        {limitHit
+          ? `An outfit can have up to ${OUTFIT_ITEMS_MAX} pieces. Remove one to add another.`
+          : needle
+            ? `${plural(visible.length, "piece")} found`
+            : ""}
+      </p>
+
+      {visible.length ? (
+        <ul className="picker-grid">
+          {visible.map((item) => {
+            const isSelected = selected.includes(item.id);
+            const blocked = atLimit && !isSelected;
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className={`picker-option${isSelected ? " is-selected" : ""}`}
+                  onClick={() => toggle(item.id)}
+                  aria-pressed={isSelected}
+                  aria-disabled={blocked || undefined}
+                  title={item.name}
+                >
+                  <Photo src={item.thumbUrl} alt="" className="picker-photo" iconSize={24} />
+                  <span className="picker-name">{item.name}</span>
+                  <span className="visually-hidden">, {item.category}</span>
+                  <span className="picker-check" aria-hidden="true">
+                    {isSelected && <Check size={14} strokeWidth={3} />}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="picker-empty">
+          {needle ? "No pieces match that search." : "Add some pieces to your wardrobe first."}
+        </p>
+      )}
+    </fieldset>
+  );
+}

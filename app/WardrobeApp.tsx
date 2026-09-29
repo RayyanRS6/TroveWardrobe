@@ -1,968 +1,712 @@
 "use client";
 
 import {
-  Camera,
-  Check,
-  ChevronDown,
-  Cloud,
-  ImagePlus,
-  LayoutGrid,
-  LoaderCircle,
-  PackageOpen,
-  Palette,
-  Plus,
-  Search,
-  Shirt,
-  Sparkles,
-  Tags,
-  Trash2,
-  WifiOff,
-  X,
-} from "lucide-react";
-import {
-  FormEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
+import { AccountPanel, type SyncStatus } from "./components/AccountPanel";
+import { ConfirmDelete } from "./components/ConfirmDialog";
+import { CategoriesView } from "./components/CategoriesView";
+import { Dialog, DialogHeader } from "./components/Dialog";
+import { ItemDetail } from "./components/ItemDetail";
+import { ItemForm } from "./components/ItemForm";
+import { BottomNav, Sidebar, TopBar, type View } from "./components/Navigation";
+import { OutfitDetail } from "./components/OutfitDetail";
+import { OutfitForm } from "./components/OutfitForm";
+import { OutfitsView } from "./components/OutfitsView";
+import { StatusPanel } from "./components/StatusPanel";
+import { Toaster, type Toast } from "./components/Toaster";
+import { WardrobeView, type ListState } from "./components/WardrobeView";
+import {
+  ApiError,
+  apiRequest,
+  errorMessage,
+  isSignedOutError,
+} from "./lib/client/api";
+import { plural } from "./lib/client/format";
+import { useGreeting } from "./lib/client/hooks";
+import {
+  pruneCachedImages,
+  readSnapshot,
+  registerServiceWorker,
+  wipeLocalData,
+  writeSnapshot,
+} from "./lib/client/local-data";
+import {
+  categoryKey,
+  INITIAL_WARDROBE,
+  parseSnapshot,
+  parseWardrobe,
+  photoUrls,
+  wardrobeReducer,
+} from "./lib/client/wardrobe-state";
+import {
+  PRESET_CATEGORIES,
+  type Outfit,
+  type StorageUsage,
+  type WardrobeItem,
+} from "./lib/wardrobe-options";
 
-type WardrobeItem = {
-  id: number;
-  name: string;
-  category: string;
-  color: string;
-  season: string;
-  imageUrl: string;
-};
-
-type Outfit = {
-  id: number;
-  name: string;
-  occasion: string;
-  itemIds: number[];
-};
-
-type CachedWardrobe = {
-  items: WardrobeItem[];
-  outfits: Outfit[];
-  categories?: string[];
-};
+type DialogState =
+  | { kind: "add-item" }
+  | { kind: "item"; id: number }
+  | { kind: "edit-item"; id: number }
+  | { kind: "add-outfit" }
+  | { kind: "outfit"; id: number }
+  | { kind: "edit-outfit"; id: number }
+  | { kind: "account" };
 
 type DeleteTarget = {
   kind: "item" | "outfit";
   id: number;
   name: string;
+  /** Items only: how many outfits include it. */
+  usedIn: number;
 };
 
-const presetCategories = [
-  "Shirts",
-  "T-shirts",
-  "Pants",
-  "Trousers",
-  "Jeans",
-  "Coats",
-  "Jackets",
-  "Pant coat",
-  "Shalwar kameez",
-  "Kurtas",
-  "Sweaters",
-  "Shoes",
-  "Accessories",
-];
+// Re-sync when the tab comes back after this long.
+const RESYNC_AFTER_MS = 30_000;
+const TOAST_MS = 4000;
 
-const seasons = ["All season", "Summer", "Winter", "Spring", "Autumn"];
-const occasions = ["Everyday", "Work", "Formal", "Casual", "Festive", "Travel"];
-
-function greeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function openCache() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("trove-cache", 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore("wardrobe");
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function writeCache(data: CachedWardrobe) {
-  try {
-    const db = await openCache();
-    db.transaction("wardrobe", "readwrite")
-      .objectStore("wardrobe")
-      .put(data, "latest");
-  } catch {
-    // Offline cache is a convenience; cloud data remains authoritative.
-  }
-}
-
-async function readCache(): Promise<CachedWardrobe | null> {
-  try {
-    const db = await openCache();
-    return await new Promise((resolve, reject) => {
-      const request = db
-        .transaction("wardrobe", "readonly")
-        .objectStore("wardrobe")
-        .get("latest");
-      request.onsuccess = () => resolve(request.result ?? null);
-      request.onerror = () => reject(request.error);
-    });
-  } catch {
-    return null;
-  }
-}
-
-function plural(value: number, singular: string, multiple = `${singular}s`) {
-  return `${value} ${value === 1 ? singular : multiple}`;
-}
+const OFFLINE_PAUSED = "You're offline, so changes are paused until you reconnect.";
+const UNSYNCED_PAUSED = "Changes are paused until Trove can sync. Try again in a moment.";
 
 export default function WardrobeApp() {
-  const [items, setItems] = useState<WardrobeItem[]>([]);
-  const [outfits, setOutfits] = useState<Outfit[]>([]);
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
-  const [activeView, setActiveView] = useState<
-    "wardrobe" | "outfits" | "tags"
-  >("wardrobe");
-  const [activeCategory, setActiveCategory] = useState("All");
+  const [wardrobe, dispatch] = useReducer(wardrobeReducer, INITIAL_WARDROBE);
+  const [status, setStatus] = useState<SyncStatus>({ state: "loading" });
+  const [usage, setUsage] = useState<StorageUsage | null>(null);
+  const [view, setView] = useState<View>("wardrobe");
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [offline, setOffline] = useState(false);
-  const [modal, setModal] = useState<"item" | "outfit" | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const imageInput = useRef<HTMLInputElement>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [update, setUpdate] = useState<{ apply: () => void } | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
-  const notify = useCallback((message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 2800);
+  const toastTimer = useRef<number | undefined>(undefined);
+  const inFlightSync = useRef<Promise<void> | null>(null);
+  const lastSyncedAt = useRef(0);
+  // Bumped by every saved change, so a sync that started earlier is redone.
+  const changeCount = useRef(0);
+  const sheetTitleId = useId();
+  const greeting = useGreeting();
+
+  const { items, outfits, categories } = wardrobe.data;
+  const hasData = wardrobe.source !== "none";
+  const readOnlyMessage =
+    status.state === "offline"
+      ? OFFLINE_PAUSED
+      : status.state === "error" && wardrobe.source !== "server"
+        ? UNSYNCED_PAUSED
+        : null;
+
+  const notify = useCallback((message: string, tone: Toast["tone"] = "success") => {
+    window.clearTimeout(toastTimer.current);
+    setToast({ id: Date.now(), message, tone });
+    toastTimer.current = window.setTimeout(() => setToast(null), TOAST_MS);
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [itemsResponse, outfitsResponse, categoriesResponse] = await Promise.all([
-        fetch("/api/items", { cache: "no-store" }),
-        fetch("/api/outfits", { cache: "no-store" }),
-        fetch("/api/categories", { cache: "no-store" }),
-      ]);
-      if (!itemsResponse.ok || !outfitsResponse.ok || !categoriesResponse.ok) {
-        throw new Error("Could not reach your wardrobe.");
-      }
-      const itemsData = (await itemsResponse.json()) as {
-        items: WardrobeItem[];
-      };
-      const outfitsData = (await outfitsResponse.json()) as {
-        outfits: Outfit[];
-      };
-      const categoriesData = (await categoriesResponse.json()) as {
-        categories: string[];
-      };
-      setItems(itemsData.items);
-      setOutfits(outfitsData.outfits);
-      setCustomCategories(categoriesData.categories);
-      setOffline(false);
-      await writeCache({
-        items: itemsData.items,
-        outfits: outfitsData.outfits,
-        categories: categoriesData.categories,
-      });
-    } catch {
-      const cached = await readCache();
-      if (cached) {
-        setItems(cached.items);
-        setOutfits(cached.outfits);
-        setCustomCategories(cached.categories ?? []);
-        setOffline(true);
-      } else {
-        setError("Your wardrobe could not be loaded. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const refreshTimer = window.setTimeout(() => void refresh(), 0);
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-    }
-    return () => window.clearTimeout(refreshTimer);
-  }, [refresh]);
-
-  useEffect(() => {
-    return () => {
-      if (imagePreview) URL.revokeObjectURL(imagePreview);
-    };
-  }, [imagePreview]);
-
-  const filteredItems = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return items.filter((item) => {
-      const matchesCategory =
-        activeCategory === "All" || item.category === activeCategory;
-      const matchesSearch =
-        !needle ||
-        [item.name, item.category, item.color, item.season]
-          .join(" ")
-          .toLowerCase()
-          .includes(needle);
-      return matchesCategory && matchesSearch;
-    });
-  }, [activeCategory, items, search]);
-
-  const categories = useMemo(
-    () => [
-      "All",
-      ...Array.from(
-        new Set([
-          ...presetCategories,
-          ...customCategories,
-          ...items.map((item) => item.category),
-        ]),
-      ),
-    ],
-    [customCategories, items],
+  // For a toast that goes with closing a dialog: the page's live region is
+  // inert until the dialog is gone, so post it just after.
+  const notifyAfterClose = useCallback(
+    (message: string, tone: Toast["tone"] = "success") => {
+      window.setTimeout(() => notify(message, tone), 120);
+    },
+    [notify],
   );
 
-  const categoryCounts = useMemo(() => {
-    return categories.slice(1).map((category) => ({
-      category,
-      count: items.filter((item) => item.category === category).length,
-    }));
-  }, [categories, items]);
+  const loadUsage = useCallback(async () => {
+    try {
+      const body = await apiRequest<Partial<StorageUsage>>("/api/usage");
+      if (typeof body.bytesUsed === "number" && typeof body.limitBytes === "number") {
+        setUsage({ bytesUsed: body.bytesUsed, limitBytes: body.limitBytes });
+      }
+    } catch {
+      // The meter is optional; it keeps its last value.
+    }
+  }, []);
 
-  function openAdd() {
-    setError(null);
-    setSelectedItems([]);
-    setModal(activeView === "outfits" && items.length ? "outfit" : "item");
+  /** Loads everything from the API. Concurrent calls share one request. */
+  const sync = useCallback((): Promise<void> => {
+    if (inFlightSync.current) return inFlightSync.current;
+    const run = (async () => {
+      try {
+        for (;;) {
+          const changesBefore = changeCount.current;
+          const [itemsBody, outfitsBody, categoriesBody] = await Promise.all([
+            apiRequest<unknown>("/api/items"),
+            apiRequest<unknown>("/api/outfits"),
+            apiRequest<unknown>("/api/categories"),
+          ]);
+          // A change saved meanwhile may be missing from these lists.
+          if (changesBefore !== changeCount.current) continue;
+
+          const data = parseWardrobe(itemsBody, outfitsBody, categoriesBody);
+          if (!data) {
+            throw new ApiError("server", 200, "Trove sent a reply it couldn't read. Please try again.");
+          }
+          dispatch({ type: "synced", data });
+          setStatus({ state: "synced" });
+          lastSyncedAt.current = Date.now();
+          pruneCachedImages(photoUrls(data.items));
+          void loadUsage();
+          return;
+        }
+      } catch (error) {
+        if (isSignedOutError(error)) return;
+        setStatus(
+          error instanceof ApiError && error.kind === "offline"
+            ? { state: "offline" }
+            : {
+                state: "error",
+                message: errorMessage(error, "Your wardrobe couldn't be loaded. Please try again."),
+              },
+        );
+      } finally {
+        inFlightSync.current = null;
+      }
+    })();
+    inFlightSync.current = run;
+    return run;
+  }, [loadUsage]);
+
+  const resync = useCallback(() => void sync(), [sync]);
+
+  // The problem panel stays up (with a spinner) until the retry resolves.
+  const retry = useCallback(async () => {
+    setRetrying(true);
+    await sync();
+    setRetrying(false);
+    // The Retry button is gone once synced: keep keyboard focus in the view.
+    if (!document.activeElement || document.activeElement === document.body) {
+      document.getElementById("view-title")?.focus();
+    }
+  }, [sync]);
+
+  // First load: show this device's copy at once, then sync with the API.
+  useEffect(() => {
+    let active = true;
+    void readSnapshot().then((raw) => {
+      const cached = parseSnapshot(raw);
+      if (active && cached) dispatch({ type: "cache-loaded", data: cached });
+    });
+    void sync();
+    return () => {
+      active = false;
+    };
+  }, [sync]);
+
+  // Keep the offline copy current after every sync and saved change.
+  useEffect(() => {
+    if (wardrobe.revision > 0) void writeSnapshot(wardrobe.data);
+  }, [wardrobe.revision, wardrobe.data]);
+
+  // Re-sync when the connection returns or the tab is shown again.
+  useEffect(() => {
+    const goOffline = () => setStatus({ state: "offline" });
+    const onVisible = () => {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastSyncedAt.current > RESYNC_AFTER_MS
+      ) {
+        resync();
+      }
+    };
+    window.addEventListener("online", resync);
+    window.addEventListener("offline", goOffline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", resync);
+      window.removeEventListener("offline", goOffline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [resync]);
+
+  useEffect(() => registerServiceWorker((apply) => setUpdate({ apply })), []);
+
+  // A file dropped outside the photo area must not replace the app.
+  useEffect(() => {
+    const guard = (event: DragEvent) => {
+      if (Array.from(event.dataTransfer?.types ?? []).includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", guard);
+    window.addEventListener("drop", guard);
+    return () => {
+      window.removeEventListener("dragover", guard);
+      window.removeEventListener("drop", guard);
+    };
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+  // --- Derived data -------------------------------------------------------
+
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+
+  const piecesOf = useCallback(
+    (outfit: Outfit) =>
+      outfit.itemIds
+        .map((id) => itemsById.get(id))
+        .filter((item): item is WardrobeItem => Boolean(item)),
+    [itemsById],
+  );
+
+  // A filter whose last piece was deleted falls back to "All".
+  const activeKey =
+    activeCategory && categories.some((category) => categoryKey(category.name) === categoryKey(activeCategory))
+      ? categoryKey(activeCategory)
+      : null;
+
+  const visibleItems = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return items.filter(
+      (item) =>
+        (!activeKey || categoryKey(item.category) === activeKey) &&
+        (!needle ||
+          [item.name, item.category, item.color, item.season].join(" ").toLowerCase().includes(needle)),
+    );
+  }, [items, activeKey, search]);
+
+  const categorySuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    return [...categories.map((category) => category.name), ...PRESET_CATEGORIES].filter((name) => {
+      const key = categoryKey(name);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [categories]);
+
+  const coverOf = useCallback(
+    (category: string) => items.find((item) => categoryKey(item.category) === categoryKey(category)),
+    [items],
+  );
+
+  const listState: ListState = hasData
+    ? "ready"
+    : status.state === "loading"
+      ? "loading"
+      : status.state === "synced"
+        ? "ready"
+        : "unavailable";
+
+  // --- Actions --------------------------------------------------------------
+
+  function openDialog(next: DialogState) {
+    setDialogBusy(false);
+    setDialog(next);
   }
 
-  function closeModal(force = false) {
-    if (submitting && !force) return;
-    setModal(null);
-    setSelectedItems([]);
-    setImageFile(null);
-    setImagePreview(null);
-    setError(null);
+  function closeDialog() {
+    if (!dialogBusy) setDialog(null);
   }
 
-  function selectImage(file?: File) {
-    if (!file) return;
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+  function goHome() {
+    setView("wardrobe");
+    setSearch("");
+    setActiveCategory(null);
+    window.scrollTo({ top: 0 });
   }
 
-  async function addItem(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!imageFile) {
-      setError("Add a photo so you can recognize this piece later.");
+  function navigate(next: View) {
+    setView(next);
+    window.scrollTo({ top: 0 });
+  }
+
+  const addLabel = view === "outfits" && items.length ? "New outfit" : "Add piece";
+
+  function startAdd(kind: "item" | "outfit" = view === "outfits" && items.length ? "outfit" : "item") {
+    if (readOnlyMessage) {
+      notify(readOnlyMessage, "info");
       return;
     }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const form = new FormData(event.currentTarget);
-      form.set("image", imageFile);
-      const response = await fetch("/api/items", { method: "POST", body: form });
-      const data = (await response.json()) as {
-        item?: WardrobeItem;
-        error?: string;
-      };
-      if (!response.ok || !data.item) {
-        throw new Error(data.error || "Could not add this piece.");
-      }
-      const nextItems = [data.item, ...items];
-      setItems(nextItems);
-      const nextCategories = customCategories.includes(data.item.category)
-        ? customCategories
-        : [...customCategories, data.item.category];
-      setCustomCategories(nextCategories);
-      await writeCache({
-        items: nextItems,
-        outfits,
-        categories: nextCategories,
-      });
-      closeModal(true);
-      notify(`${data.item.name} added to your wardrobe`);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Could not add this piece.",
-      );
-    } finally {
-      setSubmitting(false);
+    openDialog(kind === "outfit" ? { kind: "add-outfit" } : { kind: "add-item" });
+  }
+
+  function markChanged() {
+    changeCount.current += 1;
+  }
+
+  function handleItemSaved(item: WardrobeItem, photoChanged: boolean, added: boolean) {
+    markChanged();
+    dispatch({ type: "item-saved", item });
+    if (photoChanged) void loadUsage();
+    if (added) {
+      // Show the new piece: it might not match the current filter.
+      setView("wardrobe");
+      setSearch("");
+      setActiveCategory(null);
+      setDialog(null);
+      notifyAfterClose(`“${item.name}” added to your wardrobe`);
+    } else {
+      setDialog({ kind: "item", id: item.id });
+      notify("Changes saved");
     }
   }
 
-  async function addOutfit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (selectedItems.length === 0) {
-      setError("Choose at least one piece for this outfit.");
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const form = new FormData(event.currentTarget);
-      const response = await fetch("/api/outfits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.get("name"),
-          occasion: form.get("occasion"),
-          itemIds: selectedItems,
-        }),
-      });
-      const data = (await response.json()) as {
-        outfit?: Outfit;
-        error?: string;
-      };
-      if (!response.ok || !data.outfit) {
-        throw new Error(data.error || "Could not save this outfit.");
-      }
-      const nextOutfits = [data.outfit, ...outfits];
-      setOutfits(nextOutfits);
-      await writeCache({
-        items,
-        outfits: nextOutfits,
-        categories: customCategories,
-      });
-      closeModal(true);
-      setActiveView("outfits");
-      notify(`${data.outfit.name} is ready`);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Could not save this outfit.",
-      );
-    } finally {
-      setSubmitting(false);
+  function handleOutfitSaved(outfit: Outfit, added: boolean) {
+    markChanged();
+    dispatch({ type: "outfit-saved", outfit });
+    if (added) {
+      setView("outfits");
+      setDialog(null);
+      notifyAfterClose(`“${outfit.name}” is ready`);
+    } else {
+      setDialog({ kind: "outfit", id: outfit.id });
+      notify("Changes saved");
     }
   }
 
-  async function removeTarget() {
-    if (!deleteTarget) return;
-    setSubmitting(true);
-    const target = deleteTarget;
-    try {
-      const endpoint =
-        target.kind === "item"
-          ? `/api/items/${target.id}`
-          : `/api/outfits/${target.id}`;
-      const response = await fetch(endpoint, { method: "DELETE" });
-      if (!response.ok) throw new Error("Could not delete this item.");
-
-      const nextItems =
-        target.kind === "item"
-          ? items.filter((item) => item.id !== target.id)
-          : items;
-      const nextOutfits =
-        target.kind === "outfit"
-          ? outfits.filter((outfit) => outfit.id !== target.id)
-          : outfits;
-      setItems(nextItems);
-      setOutfits(nextOutfits);
-      await writeCache({
-        items: nextItems,
-        outfits: nextOutfits,
-        categories: customCategories,
-      });
-      setDeleteTarget(null);
-      notify(`${target.name} deleted`);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Could not delete this.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function toggleOutfitItem(id: number) {
-    setSelectedItems((current) =>
-      current.includes(id)
-        ? current.filter((itemId) => itemId !== id)
-        : [...current, id],
+  function handleMissing(kind: "item" | "outfit", id: number) {
+    markChanged();
+    dispatch(kind === "item" ? { type: "item-removed", id } : { type: "outfit-removed", id });
+    setDialog(null);
+    notifyAfterClose(
+      kind === "item" ? "That piece was already deleted." : "That outfit was already deleted.",
+      "info",
     );
   }
 
+  const goOffline = () => setStatus({ state: "offline" });
+
+  function askDelete(kind: "item" | "outfit", id: number) {
+    if (readOnlyMessage) {
+      notify(readOnlyMessage, "info");
+      return;
+    }
+    const name =
+      kind === "item" ? itemsById.get(id)?.name : outfits.find((outfit) => outfit.id === id)?.name;
+    if (name === undefined) return;
+    const usedIn =
+      kind === "item" ? outfits.filter((outfit) => outfit.itemIds.includes(id)).length : 0;
+    setDeleteError(null);
+    setDeleting(false);
+    setDeleteTarget({ kind, id, name, usedIn });
+  }
+
+  async function confirmDelete() {
+    const target = deleteTarget;
+    if (!target || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+
+    let alreadyGone = false;
+    try {
+      await apiRequest(`/api/${target.kind === "item" ? "items" : "outfits"}/${target.id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      if (isSignedOutError(error)) return;
+      if (error instanceof ApiError && error.status === 404) {
+        alreadyGone = true;
+      } else {
+        if (error instanceof ApiError && error.kind === "offline") goOffline();
+        setDeleteError(errorMessage(error, "This couldn't be deleted. Please try again."));
+        setDeleting(false);
+        return;
+      }
+    }
+
+    markChanged();
+    dispatch(
+      target.kind === "item"
+        ? { type: "item-removed", id: target.id }
+        : { type: "outfit-removed", id: target.id },
+    );
+    if (target.kind === "item") void loadUsage();
+    setDeleting(false);
+    setDeleteTarget(null);
+    setDialog(null);
+    notifyAfterClose(
+      alreadyGone ? `“${target.name}” was already deleted` : `“${target.name}” deleted`,
+    );
+  }
+
+  async function logOut() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    await wipeLocalData();
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST", cache: "no-store" });
+      // 401: this session had already ended, which is just as signed out.
+      if (response.ok || response.status === 401) {
+        window.location.replace("/login");
+        return;
+      }
+      notify("Trove couldn't log you out. Please try again.", "error");
+    } catch {
+      notify(
+        "You're offline, so Trove couldn't finish logging out. This device's saved copy was removed. Try again when you're online.",
+        "error",
+      );
+    }
+    setLoggingOut(false);
+  }
+
+  // --- Dialog content ---------------------------------------------------------
+
+  const sharedFormProps = {
+    titleId: sheetTitleId,
+    readOnlyMessage,
+    onBusyChange: setDialogBusy,
+    onClose: closeDialog,
+    onOffline: goOffline,
+  };
+
+  function missingContent(what: string) {
+    return (
+      <>
+        <DialogHeader titleId={sheetTitleId} kicker="Trove" title="Not found" onClose={closeDialog} />
+        <p className="detail-empty">That {what} no longer exists. It may have been deleted on another device.</p>
+      </>
+    );
+  }
+
+  function renderDialog(current: DialogState) {
+    switch (current.kind) {
+      case "add-item":
+        return (
+          <ItemForm
+            {...sharedFormProps}
+            categorySuggestions={categorySuggestions}
+            onCancel={closeDialog}
+            onSaved={(item, photoChanged) => handleItemSaved(item, photoChanged, true)}
+            onMissing={(id) => handleMissing("item", id)}
+          />
+        );
+      case "edit-item": {
+        const item = itemsById.get(current.id);
+        if (!item) return missingContent("piece");
+        return (
+          <ItemForm
+            {...sharedFormProps}
+            item={item}
+            categorySuggestions={categorySuggestions}
+            onCancel={() => setDialog({ kind: "item", id: item.id })}
+            onSaved={(saved, photoChanged) => handleItemSaved(saved, photoChanged, false)}
+            onMissing={(id) => handleMissing("item", id)}
+          />
+        );
+      }
+      case "item": {
+        const item = itemsById.get(current.id);
+        if (!item) return missingContent("piece");
+        return (
+          <ItemDetail
+            item={item}
+            outfits={outfits.filter((outfit) => outfit.itemIds.includes(item.id))}
+            titleId={sheetTitleId}
+            readOnlyMessage={readOnlyMessage}
+            onClose={closeDialog}
+            onEdit={() => {
+              if (!readOnlyMessage) setDialog({ kind: "edit-item", id: item.id });
+            }}
+            onDelete={() => askDelete("item", item.id)}
+            onOpenOutfit={(id) => setDialog({ kind: "outfit", id })}
+          />
+        );
+      }
+      case "add-outfit":
+        return (
+          <OutfitForm
+            {...sharedFormProps}
+            items={items}
+            onCancel={closeDialog}
+            onSaved={(outfit) => handleOutfitSaved(outfit, true)}
+            onMissing={(id) => handleMissing("outfit", id)}
+            onStale={resync}
+          />
+        );
+      case "edit-outfit": {
+        const outfit = outfits.find((entry) => entry.id === current.id);
+        if (!outfit) return missingContent("outfit");
+        return (
+          <OutfitForm
+            {...sharedFormProps}
+            outfit={outfit}
+            items={items}
+            onCancel={() => setDialog({ kind: "outfit", id: outfit.id })}
+            onSaved={(saved) => handleOutfitSaved(saved, false)}
+            onMissing={(id) => handleMissing("outfit", id)}
+            onStale={resync}
+          />
+        );
+      }
+      case "outfit": {
+        const outfit = outfits.find((entry) => entry.id === current.id);
+        if (!outfit) return missingContent("outfit");
+        return (
+          <OutfitDetail
+            outfit={outfit}
+            pieces={piecesOf(outfit)}
+            titleId={sheetTitleId}
+            readOnlyMessage={readOnlyMessage}
+            onClose={closeDialog}
+            onEdit={() => {
+              if (!readOnlyMessage) setDialog({ kind: "edit-outfit", id: outfit.id });
+            }}
+            onDelete={() => askDelete("outfit", outfit.id)}
+            onOpenItem={(id) => setDialog({ kind: "item", id })}
+          />
+        );
+      }
+      case "account":
+        return (
+          <>
+            <DialogHeader titleId={sheetTitleId} kicker="Trove" title="Account" onClose={closeDialog} />
+            <AccountPanel status={status} usage={usage} loggingOut={loggingOut} onLogOut={logOut} />
+          </>
+        );
+    }
+  }
+
+  const dialogKey = dialog ? `${dialog.kind}-${"id" in dialog ? dialog.id : ""}` : "";
+  const addAction = { label: addLabel, onAdd: () => startAdd(), paused: Boolean(readOnlyMessage) };
+  const account = (
+    <AccountPanel status={status} usage={usage} loggingOut={loggingOut} onLogOut={logOut} />
+  );
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#" aria-label="Trove home">
-          trove<span>.</span>
-        </a>
-        <div className={`sync-status ${offline ? "offline" : ""}`}>
-          {offline ? <WifiOff size={14} /> : <Cloud size={14} />}
-          <span>{offline ? "Offline copy" : "Cloud synced"}</span>
-        </div>
-      </header>
+    <div className="app-shell">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
 
-      <section className="intro">
-        <div>
-          <p className="eyebrow">{greeting()}</p>
-          <h1>
-            Your wardrobe,
-            <br />
-            remembered.
-          </h1>
-        </div>
-        <div className="wardrobe-count">
-          <strong>{items.length}</strong>
-          <span>pieces</span>
-        </div>
-      </section>
+      <Sidebar
+        view={view}
+        counts={{
+          wardrobe: hasData ? items.length : null,
+          outfits: hasData ? outfits.length : null,
+          categories: hasData ? categories.length : null,
+        }}
+        onNavigate={navigate}
+        onHome={goHome}
+        add={addAction}
+        account={account}
+      />
+      <TopBar onHome={goHome} status={status} />
 
-      <div className="content-panel">
-        {activeView === "wardrobe" && (
-          <>
-            <div className="section-heading">
-              <div>
-                <p className="section-kicker">Your collection</p>
-                <h2>Wardrobe</h2>
-              </div>
-              <span className="quiet-count">
-                {plural(filteredItems.length, "piece")}
-              </span>
+      <main id="main" className="main" tabIndex={-1}>
+        <section className="intro" aria-labelledby="intro-title">
+          <div>
+            <p className="kicker intro-greeting">{greeting ?? " "}</p>
+            <h1 id="intro-title">
+              Your wardrobe, <br />
+              remembered.
+            </h1>
+          </div>
+          <dl className="intro-stats">
+            <div>
+              <dt>Pieces</dt>
+              <dd>{hasData ? items.length : "–"}</dd>
             </div>
-
-            <label className="search-box">
-              <Search size={19} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search shirts, colors, seasons..."
-                aria-label="Search wardrobe"
-              />
-              {search && (
-                <button onClick={() => setSearch("")} aria-label="Clear search">
-                  <X size={16} />
-                </button>
-              )}
-            </label>
-
-            <div className="category-scroll" aria-label="Clothing categories">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  onClick={() => setActiveCategory(category)}
-                  className={activeCategory === category ? "active" : ""}
-                >
-                  {category}
-                </button>
-              ))}
+            <div>
+              <dt>Outfits</dt>
+              <dd>{hasData ? outfits.length : "–"}</dd>
             </div>
+          </dl>
+        </section>
 
-            {loading ? (
-              <LoadingGrid />
-            ) : filteredItems.length ? (
-              <div className="wardrobe-grid">
-                {filteredItems.map((item) => (
-                  <article className="clothing-card" key={item.id}>
-                    <div className="card-image">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        loading="lazy"
-                        decoding="async"
-                      />
-                      <button
-                        className="delete-icon"
-                        onClick={() =>
-                          setDeleteTarget({
-                            kind: "item",
-                            id: item.id,
-                            name: item.name,
-                          })
-                        }
-                        aria-label={`Delete ${item.name}`}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                    <div className="card-copy">
-                      <span>{item.category}</span>
-                      <h3>{item.name}</h3>
-                      <p>
-                        {[item.color, item.season].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <EmptyWardrobe
-                filtered={Boolean(search || activeCategory !== "All")}
-                onAdd={() => setModal("item")}
-                onReset={() => {
-                  setSearch("");
-                  setActiveCategory("All");
-                }}
-              />
-            )}
-          </>
-        )}
+        <div className="content-panel">
+          <StatusPanel
+            status={status}
+            source={wardrobe.source}
+            retrying={retrying}
+            onRetry={() => void retry()}
+          />
 
-        {activeView === "outfits" && (
-          <>
-            <div className="section-heading">
-              <div>
-                <p className="section-kicker">Looks you love</p>
-                <h2>Outfits</h2>
-              </div>
-              <span className="quiet-count">
-                {plural(outfits.length, "look")}
-              </span>
-            </div>
-            {loading ? (
-              <LoadingGrid />
-            ) : outfits.length ? (
-              <div className="outfit-grid">
-                {outfits.map((outfit) => {
-                  const outfitItems = outfit.itemIds
-                    .map((id) => items.find((item) => item.id === id))
-                    .filter(Boolean) as WardrobeItem[];
-                  return (
-                    <article className="outfit-card" key={outfit.id}>
-                      <div
-                        className={`outfit-collage count-${Math.min(
-                          3,
-                          outfitItems.length,
-                        )}`}
-                      >
-                        {outfitItems.slice(0, 3).map((item) => (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            key={item.id}
-                            src={item.imageUrl}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        ))}
-                        {!outfitItems.length && <Shirt size={42} />}
-                      </div>
-                      <div className="outfit-copy">
-                        <div>
-                          <span>{outfit.occasion}</span>
-                          <h3>{outfit.name}</h3>
-                          <p>{plural(outfitItems.length, "piece")}</p>
-                        </div>
-                        <button
-                          onClick={() =>
-                            setDeleteTarget({
-                              kind: "outfit",
-                              id: outfit.id,
-                              name: outfit.name,
-                            })
-                          }
-                          aria-label={`Delete ${outfit.name}`}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <EmptyOutfits
-                hasItems={items.length > 0}
-                onAdd={() => setModal(items.length ? "outfit" : "item")}
-              />
-            )}
-          </>
-        )}
-
-        {activeView === "tags" && (
-          <>
-            <div className="section-heading">
-              <div>
-                <p className="section-kicker">Browse by type</p>
-                <h2>Categories</h2>
-              </div>
-              <span className="quiet-count">{categories.length - 1} tags</span>
-            </div>
-            <div className="tag-list">
-              {categoryCounts.map(({ category, count }, index) => (
-                <button
-                  key={category}
-                  onClick={() => {
-                    setActiveCategory(category);
-                    setActiveView("wardrobe");
-                  }}
-                >
-                  <span className={`tag-swatch swatch-${(index % 5) + 1}`}>
-                    <Shirt size={20} />
-                  </span>
-                  <span className="tag-name">{category}</span>
-                  <span className="tag-count">{count}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      <nav className="bottom-nav" aria-label="Main navigation">
-        <button
-          className={activeView === "wardrobe" ? "active" : ""}
-          onClick={() => setActiveView("wardrobe")}
-        >
-          <LayoutGrid size={21} />
-          <span>Wardrobe</span>
-        </button>
-        <button
-          className={activeView === "outfits" ? "active" : ""}
-          onClick={() => setActiveView("outfits")}
-        >
-          <Sparkles size={21} />
-          <span>Outfits</span>
-        </button>
-        <button className="add-nav" onClick={openAdd} aria-label="Add new">
-          <Plus size={27} />
-        </button>
-        <button
-          className={activeView === "tags" ? "active" : ""}
-          onClick={() => setActiveView("tags")}
-        >
-          <Tags size={21} />
-          <span>Categories</span>
-        </button>
-        <button onClick={() => setModal("item")}>
-          <Camera size={21} />
-          <span>Quick add</span>
-        </button>
-      </nav>
-
-      {modal === "item" && (
-        <Modal title="Add a new piece" onClose={() => closeModal()}>
-          <form className="entry-form" onSubmit={addItem}>
-            <button
-              className={`image-drop ${imagePreview ? "has-image" : ""}`}
-              type="button"
-              onClick={() => imageInput.current?.click()}
-            >
-              {imagePreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={imagePreview} alt="Selected clothing preview" />
-              ) : (
-                <>
-                  <span className="upload-icon">
-                    <ImagePlus size={26} />
-                  </span>
-                  <strong>Add a clear photo</strong>
-                  <small>Tap to choose from your camera or gallery</small>
-                </>
-              )}
-              {imagePreview && (
-                <span className="change-photo">Change photo</span>
-              )}
-            </button>
-            <input
-              ref={imageInput}
-              className="visually-hidden"
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(event) => selectImage(event.target.files?.[0])}
+          {view === "wardrobe" && (
+            <WardrobeView
+              items={items}
+              visibleItems={visibleItems}
+              categories={categories}
+              activeCategory={activeKey ? activeCategory : null}
+              onCategoryChange={setActiveCategory}
+              search={search}
+              onSearchChange={setSearch}
+              state={listState}
+              onOpenItem={(id) => openDialog({ kind: "item", id })}
+              onAdd={() => startAdd("item")}
             />
+          )}
+          {view === "outfits" && (
+            <OutfitsView
+              outfits={outfits}
+              piecesOf={piecesOf}
+              hasItems={items.length > 0}
+              state={listState}
+              onOpenOutfit={(id) => openDialog({ kind: "outfit", id })}
+              onAdd={() => startAdd(items.length ? "outfit" : "item")}
+            />
+          )}
+          {view === "categories" && (
+            <CategoriesView
+              categories={categories}
+              coverOf={coverOf}
+              state={listState}
+              onOpenCategory={(category) => {
+                setActiveCategory(category);
+                setSearch("");
+                navigate("wardrobe");
+              }}
+              onAdd={() => startAdd("item")}
+            />
+          )}
+        </div>
+      </main>
 
-            <label className="field">
-              <span>Piece name</span>
-              <input
-                name="name"
-                placeholder="e.g. Olive linen shirt"
-                required
-                maxLength={60}
-              />
-            </label>
+      <BottomNav
+        view={view}
+        onNavigate={navigate}
+        add={addAction}
+        onAccount={() => openDialog({ kind: "account" })}
+      />
 
-            <div className="field-row">
-              <label className="field select-field">
-                <span>Category</span>
-                <input
-                  name="category"
-                  list="wardrobe-categories"
-                  placeholder="Choose or type new"
-                  required
-                  maxLength={40}
-                />
-                <datalist id="wardrobe-categories">
-                  {categories.slice(1).map((category) => (
-                    <option key={category} value={category} />
-                  ))}
-                </datalist>
-              </label>
-              <label className="field">
-                <span>Color</span>
-                <span className="input-with-icon">
-                  <Palette size={17} />
-                  <input name="color" placeholder="Olive" maxLength={30} />
-                </span>
-              </label>
-            </div>
-
-            <label className="field select-field">
-              <span>Season</span>
-              <select name="season" defaultValue="All season">
-                {seasons.map((season) => (
-                  <option key={season}>{season}</option>
-                ))}
-              </select>
-              <ChevronDown size={17} />
-            </label>
-
-            {error && <p className="form-error">{error}</p>}
-            <button className="primary-button" disabled={submitting}>
-              {submitting ? (
-                <LoaderCircle className="spin" size={20} />
-              ) : (
-                <Plus size={20} />
-              )}
-              {submitting ? "Adding piece..." : "Add to wardrobe"}
-            </button>
-          </form>
-        </Modal>
-      )}
-
-      {modal === "outfit" && (
-        <Modal title="Create an outfit" onClose={() => closeModal()}>
-          <form className="entry-form" onSubmit={addOutfit}>
-            <label className="field">
-              <span>Outfit name</span>
-              <input
-                name="name"
-                placeholder="e.g. Friday dinner"
-                required
-                maxLength={60}
-              />
-            </label>
-            <label className="field select-field">
-              <span>Occasion</span>
-              <select name="occasion" defaultValue="Everyday">
-                {occasions.map((occasion) => (
-                  <option key={occasion}>{occasion}</option>
-                ))}
-              </select>
-              <ChevronDown size={17} />
-            </label>
-
-            <div className="picker-heading">
-              <div>
-                <strong>Choose pieces</strong>
-                <span>{plural(selectedItems.length, "selected")}</span>
-              </div>
-              {selectedItems.length > 0 && (
-                <button type="button" onClick={() => setSelectedItems([])}>
-                  Clear
-                </button>
-              )}
-            </div>
-            <div className="outfit-picker">
-              {items.map((item) => {
-                const selected = selectedItems.includes(item.id);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={selected ? "selected" : ""}
-                    onClick={() => toggleOutfitItem(item.id)}
-                    aria-pressed={selected}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt={item.name}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <span>{item.name}</span>
-                    {selected && (
-                      <i>
-                        <Check size={14} />
-                      </i>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {error && <p className="form-error">{error}</p>}
-            <button className="primary-button" disabled={submitting}>
-              {submitting ? (
-                <LoaderCircle className="spin" size={20} />
-              ) : (
-                <Sparkles size={20} />
-              )}
-              {submitting ? "Saving outfit..." : "Save outfit"}
-            </button>
-          </form>
-        </Modal>
+      {dialog && (
+        <Dialog
+          labelledBy={sheetTitleId}
+          onClose={closeDialog}
+          busy={dialogBusy}
+          contentKey={dialogKey}
+          overlay={<Toaster toast={toast} onUpdate={null} />}
+        >
+          {renderDialog(dialog)}
+        </Dialog>
       )}
 
       {deleteTarget && (
-        <div className="modal-backdrop confirm-backdrop" role="presentation">
-          <div className="confirm-dialog" role="alertdialog" aria-modal="true">
-            <span className="danger-icon">
-              <Trash2 size={22} />
-            </span>
-            <h2>Delete “{deleteTarget.name}”?</h2>
-            <p>This will remove it from your wardrobe permanently.</p>
-            {error && <p className="form-error">{error}</p>}
-            <div className="confirm-actions">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                disabled={submitting}
-              >
-                Keep it
-              </button>
-              <button
-                className="danger-button"
-                onClick={removeTarget}
-                disabled={submitting}
-              >
-                {submitting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDelete
+          name={deleteTarget.name}
+          message={
+            deleteTarget.kind === "item"
+              ? "The piece and its photo are removed for good."
+              : "The outfit is removed. Its pieces stay in your wardrobe."
+          }
+          warning={
+            deleteTarget.usedIn
+              ? `Used in ${plural(deleteTarget.usedIn, "outfit")}. It will be removed from ${
+                  deleteTarget.usedIn === 1 ? "it" : "them"
+                }.`
+              : null
+          }
+          busy={deleting}
+          error={deleteError}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
 
-      {toast && (
-        <div className="toast">
-          <Check size={16} />
-          {toast}
-        </div>
-      )}
-    </main>
-  );
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="modal-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <div className="modal-handle" />
-        <header>
-          <div>
-            <p className="section-kicker">Trove</p>
-            <h2>{title}</h2>
-          </div>
-          <button onClick={onClose} aria-label="Close">
-            <X size={20} />
-          </button>
-        </header>
-        {children}
-      </section>
+      <Toaster toast={toast} onUpdate={update?.apply ?? null} />
     </div>
-  );
-}
-
-function LoadingGrid() {
-  return (
-    <div className="wardrobe-grid loading-grid" aria-label="Loading wardrobe">
-      {[0, 1, 2, 3].map((item) => (
-        <div className="loading-card" key={item}>
-          <span />
-          <i />
-          <b />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EmptyWardrobe({
-  filtered,
-  onAdd,
-  onReset,
-}: {
-  filtered: boolean;
-  onAdd: () => void;
-  onReset: () => void;
-}) {
-  return (
-    <section className="empty-state">
-      <div className="empty-art">
-        <span className="art-card art-card-left" />
-        <span className="art-card art-card-right" />
-        <span className="art-icon">
-          <Shirt size={44} strokeWidth={1.5} />
-        </span>
-      </div>
-      <p className="section-kicker">
-        {filtered ? "Nothing here" : "A fresh start"}
-      </p>
-      <h2>
-        {filtered ? "No pieces match that." : "Meet your digital wardrobe."}
-      </h2>
-      <p>
-        {filtered
-          ? "Try another search or see your full collection."
-          : "Photograph your first piece and never forget what you own again."}
-      </p>
-      <button
-        className="secondary-button"
-        onClick={filtered ? onReset : onAdd}
-      >
-        {filtered ? <X size={18} /> : <Plus size={18} />}
-        {filtered ? "Clear filters" : "Add your first piece"}
-      </button>
-    </section>
-  );
-}
-
-function EmptyOutfits({
-  hasItems,
-  onAdd,
-}: {
-  hasItems: boolean;
-  onAdd: () => void;
-}) {
-  return (
-    <section className="empty-state">
-      <div className="empty-art outfit-art">
-        <span className="art-card art-card-left" />
-        <span className="art-card art-card-right" />
-        <span className="art-icon">
-          <Sparkles size={42} strokeWidth={1.5} />
-        </span>
-      </div>
-      <p className="section-kicker">Your lookbook</p>
-      <h2>{hasItems ? "Turn pieces into outfits." : "Your looks begin here."}</h2>
-      <p>
-        {hasItems
-          ? "Combine what you own into ready-to-wear looks."
-          : "Add a few clothes first, then combine them into outfits."}
-      </p>
-      <button className="secondary-button" onClick={onAdd}>
-        {hasItems ? <Sparkles size={18} /> : <PackageOpen size={18} />}
-        {hasItems ? "Create an outfit" : "Add clothing"}
-      </button>
-    </section>
   );
 }

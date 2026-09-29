@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Playfair_Display } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -12,6 +12,17 @@ const playfair = Playfair_Display({
   variable: "--font-display",
   subsets: ["latin"],
 });
+
+// Browser chrome follows the device theme; the page draws under the notch
+// and home indicator and pads itself with safe-area insets.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f1e9" },
+    { media: "(prefers-color-scheme: dark)", color: "#121210" },
+  ],
+  colorScheme: "light dark",
+  viewportFit: "cover",
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -30,7 +41,13 @@ export async function generateMetadata(): Promise<Metadata> {
     description:
       "Organize your clothes, build outfits, and remember everything you own.",
     manifest: "/manifest.webmanifest",
-    themeColor: "#f5f1e9",
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "32x32" },
+        { url: "/icons/icon.svg", type: "image/svg+xml" },
+      ],
+      apple: "/icons/apple-touch-icon.png",
+    },
     appleWebApp: {
       capable: true,
       statusBarStyle: "default",
