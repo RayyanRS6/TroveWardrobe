@@ -44,6 +44,19 @@ every Worker URL on the account).
 
 ## 3. Later deploys and changes
 
+Pushing to `main` deploys automatically through Cloudflare Workers Builds
+(Worker `trove` > Settings > Build), configured as:
+
+| Setting | Value |
+| --- | --- |
+| Branch | `main` |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler d1 migrations apply trove-wardrobe --remote && npx wrangler deploy` |
+| Build variable | `NODE_VERSION` = `22.18.0` |
+
+Builds need no secrets: the Worker keeps its own. To deploy from this
+computer instead:
+
 | Task | Command |
 | --- | --- |
 | Deploy new code | `npm run deploy` |
