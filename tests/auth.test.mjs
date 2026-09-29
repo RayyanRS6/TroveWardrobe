@@ -181,7 +181,17 @@ test("same-origin checks use Sec-Fetch-Site and Origin", () => {
   assert.equal(isSameOriginRequest(post({ "Sec-Fetch-Site": "cross-site" })), false);
   assert.equal(isSameOriginRequest(post({ "Sec-Fetch-Site": "same-site" })), false);
   assert.equal(isSameOriginRequest(post({ Origin: "https://evil.example" })), false);
+  assert.equal(
+    isSameOriginRequest(post({ "Sec-Fetch-Site": "cross-site", Origin: "https://trove.example" })),
+    false,
+  );
+  // Safari and Firefox send "Origin: null" on a same-origin form post from a
+  // no-referrer page; only the browser-set Sec-Fetch-Site can vouch for it.
+  assert.equal(isSameOriginRequest(post({ "Sec-Fetch-Site": "same-origin", Origin: "null" })), true);
   assert.equal(isSameOriginRequest(post({ Origin: "null" })), false);
+  assert.equal(isSameOriginRequest(post({ "Sec-Fetch-Site": "cross-site", Origin: "null" })), false);
+  assert.equal(isSameOriginRequest(post({ "Sec-Fetch-Site": "same-site", Origin: "null" })), false);
+  assert.equal(isSameOriginRequest(post({ "Sec-Fetch-Site": "none", Origin: "null" })), false);
   assert.equal(
     isSameOriginRequest(post({ "Sec-Fetch-Site": "same-origin", Origin: "http://trove.example" })),
     false,

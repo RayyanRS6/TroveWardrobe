@@ -14,6 +14,7 @@ const WRANGLER = "node_modules/wrangler/bin/wrangler.js";
 const PASSWORD = `test-${randomBytes(12).toString("base64url")}`;
 const LOCKED_IP = "203.0.113.7";
 const OWNER_IP = "198.51.100.20";
+const SAFARI_IP = "198.51.100.21";
 const DAY = 24 * 60 * 60;
 // 1x1 transparent PNG.
 const TINY_PNG = Buffer.from(
@@ -182,7 +183,9 @@ test("security headers are set on Worker responses", async () => {
   await response.arrayBuffer();
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("x-frame-options"), "DENY");
-  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  // Not no-referrer: that makes Safari and Firefox post the login form with
+  // "Origin: null".
+  assert.equal(response.headers.get("referrer-policy"), "same-origin");
   assert.equal(
     response.headers.get("permissions-policy"),
     "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
@@ -206,8 +209,10 @@ test("GET /login serves the standalone sign-in page with a strict CSP", async ()
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /form-action 'self'/);
+  assert.equal(response.headers.get("referrer-policy"), "same-origin");
 
   const html = await response.text();
+  assert.match(html, /<meta name="referrer" content="same-origin">/);
   assert.match(html, /action="\/api\/auth\/login"/);
   assert.match(html, /autocomplete="current-password"/);
   assert.match(html, /autocomplete="username"/);
@@ -271,6 +276,21 @@ test("the login endpoint accepts only small same-origin form posts", async () =>
     body: new URLSearchParams({ password: PASSWORD }).toString(),
   });
   await assertJsonError(crossSite, 403, "cross_origin");
+
+  // "Origin: null" without the browser's Sec-Fetch-Site: same-origin.
+  for (const site of [null, "cross-site"]) {
+    const nullOrigin = await send("/api/auth/login", {
+      method: "POST",
+      headers: {
+        Origin: "null",
+        ...(site ? { "Sec-Fetch-Site": site } : {}),
+        "Content-Type": "application/x-www-form-urlencoded",
+        "CF-Connecting-IP": OWNER_IP,
+      },
+      body: new URLSearchParams({ password: PASSWORD }).toString(),
+    });
+    await assertJsonError(nullOrigin, 403, "cross_origin");
+  }
 });
 
 test("the right password signs in with an HttpOnly, SameSite=Lax cookie", async () => {
@@ -288,6 +308,30 @@ test("the right password signs in with an HttpOnly, SameSite=Lax cookie", async 
   assert.match(setCookie, /; Max-Age=2592000/);
   assert.doesNotMatch(setCookie, /Secure/);
   sessionCookie = setCookie.split(";")[0];
+});
+
+test("a same-origin form post with Origin: null signs in (Safari, Firefox)", async () => {
+  // What those browsers send from a no-referrer page; the browser-set
+  // Sec-Fetch-Site: same-origin is what vouches for it.
+  const response = await send("/api/auth/login", {
+    method: "POST",
+    headers: {
+      Origin: "null",
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-Mode": "navigate",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "CF-Connecting-IP": SAFARI_IP,
+    },
+    body: new URLSearchParams({ username: "trove", password: PASSWORD }).toString(),
+  });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("location"), "/");
+  const setCookie = response.headers.get("set-cookie") ?? "";
+  assert.match(setCookie, /^trove_session=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+;/);
+
+  const items = await send("/api/items", { headers: { Cookie: setCookie.split(";")[0] } });
+  assert.equal(items.status, 200);
+  await items.arrayBuffer();
 });
 
 test("a session reaches the wardrobe API", async () => {

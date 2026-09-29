@@ -117,7 +117,8 @@ export function Dialog({
   }, [contentKey]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>) {
-    if (event.key === "Escape") {
+    // Escape that ends a text composition (IME) is not a request to close.
+    if (event.key === "Escape" && !event.nativeEvent.isComposing) {
       event.preventDefault();
       event.stopPropagation();
       if (!busy) onClose();

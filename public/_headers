@@ -9,7 +9,7 @@
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
-  Referrer-Policy: no-referrer
+  Referrer-Policy: same-origin
 
 # Content-hashed build output (same rule vinext generates).
 /_next/static/*

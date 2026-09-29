@@ -213,13 +213,28 @@ async function setProductionPassword() {
 async function deployWithSecrets(secrets) {
   const dir = mkdtempSync(join(tmpdir(), "trove-secrets-"));
   const file = join(dir, "secrets.json");
+  // Ctrl+C or closing the window would skip `finally`, so the file is also
+  // removed on those signals and on exit. Wrangler receives the same Ctrl+C
+  // and stops on its own. (`mode` is ignored on Windows; %TEMP% is per-user.)
+  const cleanup = () => {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    } catch {
+      console.error(`Could not delete ${dir}. Delete it by hand: it holds your secrets.`);
+    }
+  };
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+  for (const signal of signals) process.on(signal, cleanup);
+  process.on("exit", cleanup);
   try {
     writeFileSync(file, JSON.stringify(secrets), { mode: 0o600 });
     console.log("Deploying with secrets...");
     const code = await runWrangler(["deploy", "--secrets-file", file]);
     if (code !== 0) throw new Error("Wrangler could not deploy. Nothing was changed.");
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+    for (const signal of signals) process.off(signal, cleanup);
+    process.off("exit", cleanup);
   }
 }
 

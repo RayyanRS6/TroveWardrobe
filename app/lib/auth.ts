@@ -314,13 +314,20 @@ export function isMutatingMethod(method: string) {
  * Same-origin check for state-changing requests: Sec-Fetch-Site must be
  * "same-origin" (or absent, for older browsers and non-browser clients) and a
  * present Origin header must equal the request's own origin.
+ *
+ * "Origin: null" passes only alongside Sec-Fetch-Site: same-origin, a header
+ * pages cannot set. Safari and Firefox send null on a same-origin form post
+ * from a page whose referrer policy is no-referrer; posts from opaque origins
+ * (sandboxed frames, data: URLs) or through cross-site redirects are marked
+ * cross-site and stay blocked.
  */
 export function isSameOriginRequest(request: Request) {
   const site = request.headers.get("sec-fetch-site");
   if (site !== null && site !== "same-origin") return false;
   const origin = request.headers.get("origin");
-  if (origin !== null && origin !== new URL(request.url).origin) return false;
-  return true;
+  if (origin === null) return true;
+  if (origin === "null") return site === "same-origin";
+  return origin === new URL(request.url).origin;
 }
 
 /**

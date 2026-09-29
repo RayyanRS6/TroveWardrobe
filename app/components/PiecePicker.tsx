@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Search, X } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { plural } from "../lib/client/format";
 import { OUTFIT_ITEMS_MAX, type WardrobeItem } from "../lib/wardrobe-options";
 import { Photo } from "./Photo";
@@ -30,6 +30,7 @@ function matches(item: WardrobeItem, needle: string) {
 /** Chooses up to OUTFIT_ITEMS_MAX pieces, with search and a strip of the chosen ones. */
 export function PiecePicker({ items, selected, onToggle, onClear, error, errorId }: PiecePickerProps) {
   const id = useId();
+  const picker = useRef<HTMLFieldSetElement>(null);
   const [query, setQuery] = useState("");
   const [limitHit, setLimitHit] = useState(false);
   const atLimit = selected.length >= OUTFIT_ITEMS_MAX;
@@ -47,12 +48,31 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
     onToggle(itemId);
   }
 
+  // The picker itself takes focus when the control used goes away with the
+  // selection (not the search box: that would open a phone's keyboard).
+  function focusPicker() {
+    picker.current?.focus({ preventScroll: true });
+  }
+
+  function removeChosen(index: number) {
+    // Focus moves to the next chip (or the previous one) before this one goes.
+    const neighbour = chosen[index + 1] ?? chosen[index - 1];
+    if (neighbour) document.getElementById(`${id}-remove-${neighbour.id}`)?.focus();
+    else focusPicker();
+    toggle(chosen[index].id);
+  }
+
   const countText = selected.length
     ? `${plural(selected.length, "piece")} selected`
     : "No pieces selected yet";
 
   return (
-    <fieldset className="picker" aria-describedby={error ? errorId : `${id}-count`}>
+    <fieldset
+      ref={picker}
+      className="picker"
+      aria-describedby={error ? errorId : `${id}-count`}
+      tabIndex={-1}
+    >
       <legend className="field-label">
         Pieces
         <span className="required-mark" aria-hidden="true">
@@ -71,6 +91,7 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
             className="text-button"
             onClick={() => {
               setLimitHit(false);
+              focusPicker();
               onClear();
             }}
           >
@@ -81,13 +102,14 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
 
       {chosen.length > 0 && (
         <ul className="chosen-strip" aria-label="Chosen pieces">
-          {chosen.map((item) => (
+          {chosen.map((item, index) => (
             <li key={item.id}>
               <Photo src={item.thumbUrl} alt="" className="chosen-photo" iconSize={18} />
               <button
+                id={`${id}-remove-${item.id}`}
                 type="button"
                 className="chosen-remove"
-                onClick={() => toggle(item.id)}
+                onClick={() => removeChosen(index)}
                 aria-label={`Remove ${item.name}`}
                 title={`Remove ${item.name}`}
               >
@@ -99,7 +121,8 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
       )}
 
       {error && (
-        <p id={errorId} className="field-error">
+        // Focused when a save is refused, so it is read out.
+        <p id={errorId} className="field-error" tabIndex={-1}>
           {error}
         </p>
       )}
@@ -120,6 +143,12 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
           onKeyDown={(event) => {
             // Enter in the search box must not submit the outfit.
             if (event.key === "Enter") event.preventDefault();
+            // Escape clears the search first; only then does it close the dialog.
+            if (event.key === "Escape" && query && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.stopPropagation();
+              setQuery("");
+            }
           }}
         />
         {query && (

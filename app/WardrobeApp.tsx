@@ -19,6 +19,7 @@ import { BottomNav, Sidebar, TopBar, type View } from "./components/Navigation";
 import { OutfitDetail } from "./components/OutfitDetail";
 import { OutfitForm } from "./components/OutfitForm";
 import { OutfitsView } from "./components/OutfitsView";
+import { retryFailedPhotos } from "./components/Photo";
 import { StatusPanel } from "./components/StatusPanel";
 import { Toaster, type Toast } from "./components/Toaster";
 import { WardrobeView, type ListState } from "./components/WardrobeView";
@@ -158,6 +159,7 @@ export default function WardrobeApp() {
           dispatch({ type: "synced", data });
           setStatus({ state: "synced" });
           lastSyncedAt.current = Date.now();
+          retryFailedPhotos();
           pruneCachedImages(photoUrls(data.items));
           void loadUsage();
           return;
@@ -658,6 +660,8 @@ export default function WardrobeApp() {
                 setActiveCategory(category);
                 setSearch("");
                 navigate("wardrobe");
+                // The pressed row goes with this view: focus the new view's title.
+                window.setTimeout(() => document.getElementById("view-title")?.focus());
               }}
               onAdd={() => startAdd("item")}
             />

@@ -1,7 +1,8 @@
 "use client";
 
 import { ChevronDown, LoaderCircle, Save, Sparkles } from "lucide-react";
-import { useId, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import {
   ApiError,
   apiRequest,
@@ -67,6 +68,11 @@ export function OutfitForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Pieces deleted elsewhere (e.g. found by the resync after a refused save)
+  // drop out of the selection, so they are neither counted nor sent again.
+  const existingIds = useMemo(() => new Set(items.map((item) => item.id)), [items]);
+  const chosenIds = selected.filter((itemId) => existingIds.has(itemId));
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
@@ -80,27 +86,30 @@ export function OutfitForm({
     const found: typeof errors = {};
     if (!cleanName) found.name = "Please give the outfit a name.";
     // An outfit whose pieces were all deleted can still be renamed.
-    const piecesChanged = !outfit || !sameIds(selected, outfit.itemIds);
-    if (!selected.length && piecesChanged) {
+    const piecesChanged = !outfit || !sameIds(chosenIds, outfit.itemIds);
+    if (!chosenIds.length && piecesChanged) {
       found.pieces = "Choose at least one piece for this outfit.";
     }
-    if (selected.length > OUTFIT_ITEMS_MAX) {
+    if (chosenIds.length > OUTFIT_ITEMS_MAX) {
       found.pieces = `An outfit can have at most ${OUTFIT_ITEMS_MAX} pieces.`;
     }
-    setErrors(found);
+    // Rendered at once, so a new pieces error below can be scrolled to.
+    flushSync(() => setErrors(found));
     if (found.name) {
       document.getElementById(`${id}-name`)?.focus();
       return;
     }
     if (found.pieces) {
-      document.getElementById(`${id}-pieces-error`)?.scrollIntoView({ block: "center" });
+      const message = document.getElementById(`${id}-pieces-error`);
+      message?.scrollIntoView({ block: "center" });
+      message?.focus({ preventScroll: true });
       return;
     }
 
     const changes: Record<string, unknown> = {};
     if (!outfit || cleanName !== outfit.name) changes.name = cleanName;
     if (!outfit || occasion !== outfit.occasion) changes.occasion = occasion;
-    if (piecesChanged) changes.itemIds = selected;
+    if (piecesChanged) changes.itemIds = chosenIds;
     if (outfit && !Object.keys(changes).length) {
       onCancel();
       return;
@@ -185,9 +194,11 @@ export function OutfitForm({
 
         <PiecePicker
           items={items}
-          selected={selected}
+          selected={chosenIds}
           onToggle={(itemId) => {
-            setSelected((current) => toggledSelection(current, itemId));
+            setSelected((current) =>
+              toggledSelection(current.filter((selectedId) => existingIds.has(selectedId)), itemId),
+            );
             setErrors((current) => (current.pieces ? { ...current, pieces: undefined } : current));
           }}
           onClear={() => setSelected([])}

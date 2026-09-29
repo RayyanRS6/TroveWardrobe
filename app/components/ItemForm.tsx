@@ -71,6 +71,15 @@ export function ItemForm({
     };
   }, [previewUrl]);
 
+  // A photo still being prepared when the form closes is dropped, so no
+  // preview URL is made that nothing would release.
+  useEffect(() => {
+    const picks = latestPick;
+    return () => {
+      picks.current += 1;
+    };
+  }, []);
+
   async function pickPhoto(file: File) {
     const pick = ++latestPick.current;
     setPhoto({ status: "preparing", name: file.name });

@@ -29,7 +29,7 @@ single-user app locked behind one password.
 
 ## Local development
 
-Requirements: Node.js 22+ and a `.env` file (copy `.env.example`).
+Requirements: Node.js 22.18+ and a `.env` file (copy `.env.example`).
 
 ```bash
 npm install

@@ -150,6 +150,9 @@ export function WardrobeView({
               onClick={() => {
                 onSearchChange("");
                 onCategoryChange(null);
+                // This button gives way to the grid: keep focus in the view
+                // (on its title, not the search box: that would open a phone's keyboard).
+                document.getElementById("view-title")?.focus();
               }}
             >
               <X size={18} aria-hidden="true" />

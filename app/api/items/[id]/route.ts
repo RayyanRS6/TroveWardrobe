@@ -21,7 +21,12 @@ import {
   validateName,
   validateSeason,
 } from "../../../lib/wardrobe-input";
-import { assertPhotoFits, storageFull, storePhoto } from "../../../lib/wardrobe-photos";
+import {
+  assertPhotoFits,
+  runToCompletion,
+  storageFull,
+  storePhoto,
+} from "../../../lib/wardrobe-photos";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +41,22 @@ function itemNotFound() {
   return new RequestError(404, "That piece no longer exists.");
 }
 
+function photoChanged() {
+  return new RequestError(
+    409,
+    "This piece's photo was just changed on another device. Please reopen it and try again.",
+    "conflict",
+  );
+}
+
 /** Multipart with any of: name, category, color, season, image. */
 export async function PATCH(request: Request, context: RouteContext) {
+  // A new photo's upload, the update and the old photo's deletion (or the
+  // rollback) finish even if the client disconnects.
+  return runToCompletion(updateItem(request, context));
+}
+
+async function updateItem(request: Request, context: RouteContext) {
   const uploaded: StoredObject[] = [];
 
   try {
@@ -110,9 +129,12 @@ export async function PATCH(request: Request, context: RouteContext) {
       throw new RequestError(400, "Nothing to update. Send at least one detail or a new photo.");
     }
 
-    // With a new photo, re-check the limit with the real sizes atomically.
+    // With a new photo, re-check the limit with the real sizes atomically,
+    // and replace only the photo read above: one saved meanwhile elsewhere
+    // would otherwise be orphaned.
     const quotaCheck = quota
-      ? ` AND (SELECT COALESCE(SUM(image_size + thumb_size), 0) FROM wardrobe_items)
+      ? ` AND image_key = ?
+          AND (SELECT COALESCE(SUM(image_size + thumb_size), 0) FROM wardrobe_items)
             - (image_size + thumb_size) + ? <= ?`
       : "";
     const row = await db
@@ -121,15 +143,16 @@ export async function PATCH(request: Request, context: RouteContext) {
          WHERE id = ? AND owner = ?${quotaCheck}
          RETURNING ${ITEM_COLUMNS}`,
       )
-      .bind(...values, id, owner, ...(quota ?? []))
+      .bind(...values, id, owner, ...(quota ? [existing.image_key, ...quota] : []))
       .first<WardrobeItemRow>();
 
     if (!row) {
-      const stillExists = await db
-        .prepare("SELECT 1 FROM wardrobe_items WHERE id = ? AND owner = ?")
+      const current = await db
+        .prepare("SELECT image_key FROM wardrobe_items WHERE id = ? AND owner = ?")
         .bind(id, owner)
-        .first();
-      throw stillExists && quota ? storageFull() : itemNotFound();
+        .first<{ image_key: string }>();
+      if (!current || !quota) throw itemNotFound();
+      throw current.image_key === existing.image_key ? storageFull() : photoChanged();
     }
 
     uploaded.length = 0;
@@ -150,30 +173,33 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
+  // The row and its photos go together even if the client disconnects.
+  return runToCompletion(deleteItem(request, context));
+}
+
+type PhotoKeys = {
+  image_key: string;
+  image_version: string;
+  thumb_key: string;
+  thumb_version: string;
+};
+
+async function deleteItem(request: Request, context: RouteContext) {
   try {
     const owner = await requireOwner(request);
     const { id: rawId } = await context.params;
     const id = parseId(rawId, "piece");
 
-    const db = getWardrobeDb();
-    const row = await db
-      .prepare(
-        `SELECT image_key, image_version, thumb_key, thumb_version
-         FROM wardrobe_items WHERE id = ? AND owner = ?`,
-      )
-      .bind(id, owner)
-      .first<{
-        image_key: string;
-        image_version: string;
-        thumb_key: string;
-        thumb_version: string;
-      }>();
-    if (!row) throw itemNotFound();
-
     // Remove the item and every outfit reference to it in one transaction.
-    const [deleted] = await db.batch([
+    // The photo keys come from the deleted row itself, so a photo replaced
+    // meanwhile is not left behind.
+    const db = getWardrobeDb();
+    const [deleted] = await db.batch<PhotoKeys>([
       db
-        .prepare("DELETE FROM wardrobe_items WHERE id = ? AND owner = ?")
+        .prepare(
+          `DELETE FROM wardrobe_items WHERE id = ? AND owner = ?
+           RETURNING image_key, image_version, thumb_key, thumb_version`,
+        )
         .bind(id, owner),
       db
         .prepare(
@@ -191,7 +217,8 @@ export async function DELETE(request: Request, context: RouteContext) {
         )
         .bind(id, owner),
     ]);
-    if (!deleted.meta.changes) throw itemNotFound();
+    const row = deleted.results[0];
+    if (!row) throw itemNotFound();
 
     // The row is gone; storage cleanup is best effort (failures are logged).
     await deleteB2ObjectsQuietly(

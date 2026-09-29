@@ -156,7 +156,15 @@ export function PhotoField({
         {status}
       </p>
       {editing && (choice.status === "ready" || choice.status === "error") && onReset && (
-        <button type="button" className="text-button" onClick={onReset}>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            onReset();
+            // This button goes away: keep focus on the photo it concerns.
+            document.getElementById(id)?.focus();
+          }}
+        >
           <RotateCcw size={15} aria-hidden="true" />
           Keep the current photo
         </button>

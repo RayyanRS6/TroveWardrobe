@@ -133,6 +133,9 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: hidden;
+  /* clip, unlike hidden, never makes <body> a scroll container, so the sticky
+     sidebar still sticks to the viewport while html.scroll-locked is set. */
+  overflow-x: clip;
   background:
     radial-gradient(circle at 85% 2%, var(--glow), transparent 22rem),
     var(--paper);
@@ -820,6 +823,11 @@ h3 {
 
 .outfit-card .card-hit::after {
   border-radius: 20px;
+}
+
+/* The card clips its overflow, so its focus ring is drawn inside the edge. */
+.outfit-card .card-hit:focus-visible::after {
+  outline-offset: -3px;
 }
 
 .outfit-copy {
@@ -1945,6 +1953,12 @@ select.input {
   transform: translateX(-50%);
 }
 
+/* An open dialog shows the toasts itself (its overlay), so the page's copy
+   would be a duplicate. Hidden, not emptied: its live region stays as is. */
+.app-shell:has(> .dialog[open]) > .toast-stack {
+  visibility: hidden;
+}
+
 .toast,
 .update-banner {
   display: flex;
@@ -1999,7 +2013,8 @@ select.input {
     gap: 22px;
     border-right: 1px solid var(--line);
     background: var(--surface);
-    padding: 30px 18px 22px;
+    /* Landscape phones this wide have a notch or rounded corners at the sides. */
+    padding: 30px 18px max(22px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
   }
 
   .sidebar .brand {
@@ -2058,7 +2073,8 @@ select.input {
   }
 
   .main {
-    padding: 40px clamp(28px, 4vw, 56px) 56px;
+    padding: 40px max(clamp(28px, 4vw, 56px), env(safe-area-inset-right))
+      max(56px, env(safe-area-inset-bottom)) clamp(28px, 4vw, 56px);
   }
 
   .intro,
@@ -2109,7 +2125,7 @@ select.input {
   /* Centered modal dialogs. */
   .dialog {
     align-items: center;
-    padding: 28px;
+    padding: 28px max(28px, env(safe-area-inset-right)) 28px max(28px, env(safe-area-inset-left));
   }
 
   .dialog-panel {
@@ -2159,8 +2175,8 @@ select.input {
 
   .toast-stack {
     top: auto;
-    right: 28px;
-    bottom: 28px;
+    right: max(28px, env(safe-area-inset-right));
+    bottom: max(28px, env(safe-area-inset-bottom));
     left: auto;
     justify-items: end;
     transform: none;

@@ -78,7 +78,9 @@ function withSecurityHeaders(response: Response, url: URL, nonce: string | null)
   const headers = secured.headers;
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
-  headers.set("Referrer-Policy", "no-referrer");
+  // Not no-referrer: under it Safari and Firefox send "Origin: null" on the
+  // login form post. same-origin still sends nothing to other sites.
+  headers.set("Referrer-Policy", "same-origin");
   headers.set(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(), payment=(), usb=()",

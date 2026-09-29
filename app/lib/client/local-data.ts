@@ -159,11 +159,40 @@ export function pruneCachedImages(keep: string[]) {
   navigator.serviceWorker.controller?.postMessage({ type: "prune-images", keep });
 }
 
+// Paths the worker keeps (besides "/"): build files, icons and photos.
+const WORKER_CACHED_PATH = /^\/(?:_next\/static|icons|api\/images)\//;
+// Lets files this page is still loading finish, so they are listed too.
+const CACHE_PAGE_DELAY_MS = 3000;
+
+/** This page's own URLs the worker keeps: "/" and the files it loaded. */
+function pageUrls() {
+  const urls = new Set<string>();
+  if (window.location.pathname === "/") urls.add("/");
+  const loaded = [
+    ...performance.getEntriesByType("resource").map((entry) => entry.name),
+    ...Array.from(document.scripts, (script) => script.src),
+    ...Array.from(document.querySelectorAll<HTMLLinkElement>("link[href]"), (link) => link.href),
+    ...Array.from(document.images, (image) => image.currentSrc || image.src),
+  ];
+  for (const value of loaded) {
+    try {
+      const url = new URL(value, window.location.href);
+      if (url.origin === window.location.origin && WORKER_CACHED_PATH.test(url.pathname)) {
+        urls.add(url.href);
+      }
+    } catch {
+      // Not a valid URL.
+    }
+  }
+  return [...urls];
+}
+
 /**
  * Registers the offline service worker in production builds. When a new
  * version is waiting, `onUpdateReady` gets a function that activates it; the
- * page then reloads once. Development unregisters any leftover worker so it
- * cannot serve stale files. Returns a cleanup function.
+ * page then reloads once. A load the worker did not control has the worker
+ * keep its shell and files. Development unregisters any leftover worker so
+ * it cannot serve stale files. Returns a cleanup function.
  */
 export function registerServiceWorker(onUpdateReady: (apply: () => void) => void) {
   if (!("serviceWorker" in navigator)) return () => undefined;
@@ -176,21 +205,50 @@ export function registerServiceWorker(onUpdateReady: (apply: () => void) => void
   let active = true;
   let requested = false;
   let reloading = false;
-  // Also fires when the very first worker claims the page; only an update the
-  // viewer asked for reloads it.
-  const onControllerChange = () => {
-    if (!requested || reloading) return;
+  let cacheTimer: number | undefined;
+  // The sign-in page removes the worker, so the first load after signing in
+  // is not controlled: neither "/" nor its files went through the worker.
+  const startedUncontrolled = !navigator.serviceWorker.controller;
+
+  const reload = () => {
+    if (reloading) return;
     reloading = true;
     window.location.reload();
+  };
+  // Also fires when the very first worker claims the page, or when another
+  // tab applies an update; only an update the viewer asked for here reloads.
+  const onControllerChange = () => {
+    if (requested) reload();
   };
   navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
 
   const offer = (worker: ServiceWorker) => {
     if (!active) return;
     onUpdateReady(() => {
+      // Another tab already applied this update: no controllerchange is
+      // coming, and a reload runs the new version.
+      if (worker.state !== "installed") {
+        reload();
+        return;
+      }
       requested = true;
       worker.postMessage({ type: "skip-waiting" });
     });
+  };
+
+  // Once a worker is active, it stores what an uncontrolled load fetched, so
+  // offline works from the first session (later requests go through it).
+  const cacheThisPage = (registration: ServiceWorkerRegistration) => {
+    if (!active || !startedUncontrolled) return;
+    cacheTimer = window.setTimeout(() => {
+      const worker = navigator.serviceWorker.controller ?? registration.active;
+      if (!active || wiped || !worker) return;
+      try {
+        worker.postMessage({ type: "cache-page", urls: pageUrls() });
+      } catch {
+        // Only costs the offline copy until the next launch.
+      }
+    }, CACHE_PAGE_DELAY_MS);
   };
 
   navigator.serviceWorker
@@ -208,11 +266,13 @@ export function registerServiceWorker(onUpdateReady: (apply: () => void) => void
           }
         });
       });
+      return navigator.serviceWorker.ready.then(cacheThisPage);
     })
     .catch(() => undefined);
 
   return () => {
     active = false;
+    window.clearTimeout(cacheTimer);
     navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
   };
 }

@@ -12,12 +12,15 @@
 // Never handled: non-GET, other origins, /login, /api/auth/*, other /api/*.
 //
 // Messages from the page (worker.postMessage, where worker is
-// registration.waiting for "skip-waiting", else the active controller):
+// registration.waiting for "skip-waiting", else the active worker):
 //   { type: "skip-waiting" }  activate a waiting update now
 //   { type: "wipe" }          delete every trove-* cache (sign-out); replies
 //                             { type: "wiped" } on event.ports[0], if given
 //   { type: "prune-images", keep: ["/api/images/7?size=thumb&v=ab12", ...] }
 //                             drop cached photos whose path+query is not kept
+//   { type: "cache-page", urls: ["/", "https://…/_next/static/…", ...] }
+//                             keep what a page loaded before this worker
+//                             controlled it, by the rules above
 
 const STATIC_CACHE = "trove-static-v3";
 const PAGES_CACHE = "trove-pages-v3";
@@ -27,12 +30,15 @@ const CACHE_PREFIX = "trove-";
 const SHELL_KEY = "/";
 const MAX_IMAGES = 800;
 const PAGE_TIMEOUT_MS = 4000;
+const MAX_PAGE_URLS = 300;
 
 // Bumped by every wipe so a download that started before a sign-out cannot
 // put its response back into a freshly emptied cache.
 let generation = 0;
 
-// Nothing is precached: "/" is stored only after a signed-in page load.
+// Nothing is precached: "/" is stored after a signed-in page load. The first
+// load after signing in is never controlled (the sign-in page removes this
+// worker), so that page sends "cache-page" once this worker is active.
 // A new version waits for the page to send "skip-waiting".
 
 self.addEventListener("activate", (event) => {
@@ -83,6 +89,8 @@ self.addEventListener("message", (event) => {
     );
   } else if (data.type === "prune-images" && Array.isArray(data.keep)) {
     event.waitUntil(pruneImages(data.keep));
+  } else if (data.type === "cache-page" && Array.isArray(data.urls)) {
+    event.waitUntil(cachePage(data.urls).catch(() => undefined));
   }
 });
 
@@ -95,11 +103,7 @@ async function cacheFirst(event, cacheName) {
 
   const started = generation;
   const response = await fetch(event.request);
-  const storable =
-    isCleanOk(response) &&
-    (cacheName !== IMAGES_CACHE ||
-      (response.headers.get("Content-Type") || "").startsWith("image/"));
-  if (storable) {
+  if (isStorable(response, cacheName)) {
     const copy = response.clone();
     event.waitUntil(
       (async () => {
@@ -140,13 +144,60 @@ async function pageLoad(event) {
 }
 
 /** Keep a signed-in "/" as the shell; forget everything once signed out. */
-async function afterPageLoad(response) {
+async function afterPageLoad(response, started = generation) {
   if (isSignedOut(response)) return wipeCaches();
   if (!isCleanOk(response) || new URL(response.url).pathname !== "/") return;
   const copy = response.clone();
-  const started = generation;
   const cache = await caches.open(PAGES_CACHE);
   if (started === generation) await cache.put(SHELL_KEY, copy);
+}
+
+/**
+ * Keeps what a page loaded before this worker controlled it: a fresh "/" as
+ * the shell, plus build files, icons and photos not cached yet. Only
+ * same-origin URLs on those paths count, at most MAX_PAGE_URLS of them.
+ */
+async function cachePage(urls) {
+  const started = generation;
+  let shell = false;
+  const files = new Map(); // href -> cache name
+  for (const value of urls.slice(0, MAX_PAGE_URLS)) {
+    if (typeof value !== "string") continue;
+    let url;
+    try {
+      url = new URL(value, self.location.origin);
+    } catch {
+      continue;
+    }
+    if (url.origin !== self.location.origin) continue;
+    url.hash = "";
+    const path = url.pathname;
+    if (path === SHELL_KEY) {
+      shell = true;
+    } else if (path.startsWith("/_next/static/") || path.startsWith("/icons/")) {
+      files.set(url.href, STATIC_CACHE);
+    } else if (path.startsWith("/api/images/")) {
+      files.set(url.href, IMAGES_CACHE);
+    }
+  }
+
+  const jobs = [...files].map(([href, cacheName]) => storeCopy(href, cacheName, started));
+  if (shell) {
+    jobs.push(fetch(SHELL_KEY).then((response) => afterPageLoad(response, started)));
+  }
+  await Promise.all(jobs.map((job) => job.catch(() => undefined)));
+  if (started === generation && [...files.values()].includes(IMAGES_CACHE)) {
+    await trimImages(await caches.open(IMAGES_CACHE));
+  }
+}
+
+/** Fetch `href` into `cacheName` unless it is already there. */
+async function storeCopy(href, cacheName, started) {
+  if (await caches.match(href, { cacheName })) return;
+  const response = await fetch(href);
+  if (started !== generation || !isStorable(response, cacheName)) return;
+  const cache = await caches.open(cacheName);
+  if (started === generation) await cache.put(href, response);
 }
 
 /**
@@ -164,6 +215,15 @@ function isSignedOut(response) {
 function isCleanOk(response) {
   return (
     response.status === 200 && response.type === "basic" && !response.redirected
+  );
+}
+
+/** A clean 200 worth keeping in `cacheName`; photos must be images. */
+function isStorable(response, cacheName) {
+  return (
+    isCleanOk(response) &&
+    (cacheName !== IMAGES_CACHE ||
+      (response.headers.get("Content-Type") || "").startsWith("image/"))
   );
 }
 

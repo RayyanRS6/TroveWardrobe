@@ -73,7 +73,9 @@ const STYLES = `
   --bg: var(--paper);
   --fg: var(--ink);
   --muted: rgba(23, 23, 20, 0.62);
-  --line: rgba(23, 23, 20, 0.16);
+  /* Field border and focus ring stay >= 3:1 against page and field. */
+  --line: #858176;
+  --focus: var(--ink);
   --field: #fffdf8;
   --error: #c23b1e;
   color-scheme: light;
@@ -83,7 +85,8 @@ const STYLES = `
     --bg: var(--ink);
     --fg: var(--paper);
     --muted: rgba(245, 241, 233, 0.64);
-    --line: rgba(245, 241, 233, 0.18);
+    --line: #7d796e;
+    --focus: var(--coral);
     --field: #22211d;
     --error: var(--coral);
     color-scheme: dark;
@@ -122,7 +125,7 @@ input[type="password"] {
   font: inherit;
 }
 input[type="password"]:focus-visible, button:focus-visible {
-  outline: 3px solid var(--coral);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 .username {
@@ -181,6 +184,10 @@ const SCRIPT = `
 })();
 `;
 
+// The username input exists only so password managers can file the password.
+// It stays rendered but clipped, since some managers skip display:none
+// fields; aria-hidden and tabindex="-1" keep it out of the accessibility tree
+// (Chromium reports it ignored, "ariaHiddenSubtree") and the tab order.
 export function renderLoginPage(nonce: string, notice: LoginNotice) {
   const message = escapeHtml(noticeText(notice));
   const safeNonce = escapeHtml(nonce);
@@ -190,7 +197,7 @@ export function renderLoginPage(nonce: string, notice: LoginNotice) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="same-origin">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f5f1e9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171714" media="(prefers-color-scheme: dark)">

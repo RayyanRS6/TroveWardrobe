@@ -19,7 +19,12 @@ import {
   validateName,
   validateSeason,
 } from "../../lib/wardrobe-input";
-import { assertPhotoFits, storageFull, storePhoto } from "../../lib/wardrobe-photos";
+import {
+  assertPhotoFits,
+  runToCompletion,
+  storageFull,
+  storePhoto,
+} from "../../lib/wardrobe-photos";
 import { DEFAULT_SEASON } from "../../lib/wardrobe-options";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +53,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // The upload, the insert and any rollback finish even if the client
+  // disconnects, so no photo is left in B2 without a row.
+  return runToCompletion(createItem(request));
+}
+
+async function createItem(request: Request) {
   const uploaded: StoredObject[] = [];
 
   try {

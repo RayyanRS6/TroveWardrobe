@@ -1,3 +1,4 @@
+import { waitUntil } from "cloudflare:workers";
 import {
   assertB2Configured,
   getB2StorageLimitBytes,
@@ -23,6 +24,19 @@ export function storageFull() {
     507,
     "Your photo storage safety limit has been reached. Delete some pieces to add more.",
   );
+}
+
+/**
+ * Lets a handler that writes to B2 finish even if the client disconnects.
+ * Workers cancels a request's pending work when its client goes away, which
+ * could stop between an upload and its rollback, or between the D1 write and
+ * deleting the photos it replaced. waitUntil keeps the work alive; the
+ * handler still answers with the same promise.
+ */
+export function runToCompletion<T>(work: Promise<T>) {
+  // The caller handles any rejection; the copy given to waitUntil never rejects.
+  waitUntil(work.then(() => undefined, () => undefined));
+  return work;
 }
 
 /**
