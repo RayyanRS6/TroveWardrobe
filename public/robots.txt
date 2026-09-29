@@ -1,0 +1,3 @@
+# Trove is a private, single-user app: nothing here is meant for search engines.
+User-agent: *
+Disallow: /

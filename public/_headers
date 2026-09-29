@@ -1,0 +1,23 @@
+# Headers for files served by Cloudflare's static assets layer (Workers Static
+# Assets format). Worker responses (pages, /api/*) set their own headers.
+#
+# vinext writes dist/client/_headers only when the build output has none, and
+# Vite copies this file there first, so vinext's rule is repeated below.
+# Every matching rule applies and a header set by two rules is joined with a
+# comma, so each header appears in exactly one rule.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+
+# Content-hashed build output (same rule vinext generates).
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Revalidate on every load so updates reach installed apps promptly.
+/sw.js
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Cache-Control: no-cache

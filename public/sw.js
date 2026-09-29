@@ -1,53 +1,251 @@
-const CACHE = "trove-shell-v2";
-const SHELL = ["/", "/manifest.webmanifest"];
+// Trove service worker: keeps the app shell and wardrobe photos available
+// offline. Wardrobe data itself lives in IndexedDB (app/WardrobeApp.tsx), so
+// every API call other than photos goes straight to the network.
+//
+// Caches (bump a version suffix to drop that cache on every device):
+//   trove-static-v3  GET /_next/static/*, /icons/*  cache-first. Build files
+//                    are content-hashed; icons refresh only with a new version.
+//   trove-pages-v3   page loads                      network-first (4 s), and
+//                    only a signed-in "/" is kept, as the offline app shell.
+//   trove-images-v3  GET /api/images/*               cache-first by full URL,
+//                    newest ~800 kept.
+// Never handled: non-GET, other origins, /login, /api/auth/*, other /api/*.
+//
+// Messages from the page (worker.postMessage, where worker is
+// registration.waiting for "skip-waiting", else the active controller):
+//   { type: "skip-waiting" }  activate a waiting update now
+//   { type: "wipe" }          delete every trove-* cache (sign-out); replies
+//                             { type: "wiped" } on event.ports[0], if given
+//   { type: "prune-images", keep: ["/api/images/7?size=thumb&v=ab12", ...] }
+//                             drop cached photos whose path+query is not kept
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
-  self.skipWaiting();
-});
+const STATIC_CACHE = "trove-static-v3";
+const PAGES_CACHE = "trove-pages-v3";
+const IMAGES_CACHE = "trove-images-v3";
+const CURRENT_CACHES = [STATIC_CACHE, PAGES_CACHE, IMAGES_CACHE];
+const CACHE_PREFIX = "trove-";
+const SHELL_KEY = "/";
+const MAX_IMAGES = 800;
+const PAGE_TIMEOUT_MS = 4000;
+
+// Bumped by every wipe so a download that started before a sign-out cannot
+// put its response back into a freshly emptied cache.
+let generation = 0;
+
+// Nothing is precached: "/" is stored only after a signed-in page load.
+// A new version waits for the page to send "skip-waiting".
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)),
-        ),
-      ),
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter((name) => name.startsWith(CACHE_PREFIX))
+          .filter((name) => !CURRENT_CACHES.includes(name))
+          .map((name) => caches.delete(name)),
+      );
+      await self.clients.claim();
+    })(),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  const path = url.pathname;
 
-  if (url.pathname.startsWith("/api/")) {
-    if (url.pathname.startsWith("/api/images/")) {
-      event.respondWith(
-        caches.open(CACHE).then(async (cache) => {
-          const cached = await cache.match(request);
-          if (cached) return cached;
-          const response = await fetch(request);
-          if (response.ok) await cache.put(request, response.clone());
-          return response;
-        }),
-      );
-    }
+  if (path.startsWith("/api/images/")) {
+    event.respondWith(cacheFirst(event, IMAGES_CACHE));
     return;
   }
-
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
-        return response;
-      })
-      .catch(() =>
-        caches.match(request).then((cached) => cached || caches.match("/")),
-      ),
-  );
+  // Network only: sign-in, auth and wardrobe data.
+  if (path.startsWith("/api/") || path === "/login" || path.startsWith("/login/")) {
+    return;
+  }
+  if (path.startsWith("/_next/static/") || path.startsWith("/icons/")) {
+    event.respondWith(cacheFirst(event, STATIC_CACHE));
+  } else if (request.mode === "navigate") {
+    event.respondWith(pageLoad(event));
+  }
 });
+
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+  if (data.type === "skip-waiting") {
+    self.skipWaiting();
+  } else if (data.type === "wipe") {
+    const reply = event.ports && event.ports[0];
+    event.waitUntil(
+      wipeCaches().then(() => reply && reply.postMessage({ type: "wiped" })),
+    );
+  } else if (data.type === "prune-images" && Array.isArray(data.keep)) {
+    event.waitUntil(pruneImages(data.keep));
+  }
+});
+
+/** Serve from the cache; otherwise fetch and keep a clean 200 copy. */
+async function cacheFirst(event, cacheName) {
+  const cached = await caches
+    .match(event.request, { cacheName })
+    .catch(() => undefined); // storage unavailable: just use the network
+  if (cached) return cached;
+
+  const started = generation;
+  const response = await fetch(event.request);
+  const storable =
+    isCleanOk(response) &&
+    (cacheName !== IMAGES_CACHE ||
+      (response.headers.get("Content-Type") || "").startsWith("image/"));
+  if (storable) {
+    const copy = response.clone();
+    event.waitUntil(
+      (async () => {
+        const cache = await caches.open(cacheName);
+        if (started !== generation) return;
+        await cache.put(event.request, copy);
+        if (cacheName === IMAGES_CACHE) await trimImages(cache);
+      })().catch(() => undefined), // e.g. storage quota exceeded
+    );
+  }
+  return response;
+}
+
+/**
+ * Network-first page load. After PAGE_TIMEOUT_MS the saved app shell is
+ * shown instead (if there is one) and the network answer only updates it.
+ */
+async function pageLoad(event) {
+  const network = fetch(event.request);
+  // Registered before the reactions below, so the shell copy is cloned
+  // before the browser starts reading the body.
+  event.waitUntil(network.then(afterPageLoad).catch(() => undefined));
+
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(resolve, PAGE_TIMEOUT_MS);
+  });
+  try {
+    const response = await Promise.race([network, timeout]);
+    if (response && response.status < 500) return response;
+    // Slow network or server error: prefer the saved shell.
+    return (await savedShell()) || response || (await network);
+  } catch {
+    return (await savedShell()) || offlinePage();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Keep a signed-in "/" as the shell; forget everything once signed out. */
+async function afterPageLoad(response) {
+  if (isSignedOut(response)) return wipeCaches();
+  if (!isCleanOk(response) || new URL(response.url).pathname !== "/") return;
+  const copy = response.clone();
+  const started = generation;
+  const cache = await caches.open(PAGES_CACHE);
+  if (started === generation) await cache.put(SHELL_KEY, copy);
+}
+
+/**
+ * A page load that ends at sign-in means the session is over. Navigations
+ * use redirect: "manual", which hides the Location header from the worker,
+ * so any page redirect counts: in Trove only the sign-in gate redirects pages.
+ */
+function isSignedOut(response) {
+  if (response.status === 401) return true;
+  if (response.redirected) return new URL(response.url).pathname === "/login";
+  return response.type === "opaqueredirect";
+}
+
+/** A 200 from this origin that did not come through a redirect. */
+function isCleanOk(response) {
+  return (
+    response.status === 200 && response.type === "basic" && !response.redirected
+  );
+}
+
+function savedShell() {
+  return caches
+    .match(SHELL_KEY, { cacheName: PAGES_CACHE })
+    .catch(() => undefined);
+}
+
+async function wipeCaches() {
+  generation += 1;
+  const names = await caches.keys();
+  await Promise.all(
+    names
+      .filter((name) => name.startsWith(CACHE_PREFIX))
+      .map((name) => caches.delete(name)),
+  );
+}
+
+/** Cache keys are kept in insertion order: drop the oldest over the cap. */
+async function trimImages(cache) {
+  const keys = await cache.keys();
+  const excess = keys.length - MAX_IMAGES;
+  if (excess > 0) {
+    await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
+  }
+}
+
+/** Drop cached photos whose path+query is not in `keep`. */
+async function pruneImages(keep) {
+  const wanted = new Set(keep.map(pathAndQuery));
+  const cache = await caches.open(IMAGES_CACHE);
+  const keys = await cache.keys();
+  await Promise.all(
+    keys
+      .filter((key) => !wanted.has(pathAndQuery(key.url)))
+      .map((key) => cache.delete(key)),
+  );
+}
+
+/** "/api/images/7?size=thumb&v=ab12" for a relative or absolute URL. */
+function pathAndQuery(value) {
+  try {
+    const url = new URL(value, self.location.origin);
+    return url.pathname + url.search;
+  } catch {
+    return "";
+  }
+}
+
+function offlinePage() {
+  const html = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Trove is offline</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+    padding: 24px; box-sizing: border-box; background: #f5f1e9; color: #171714;
+    font: 16px/1.5 system-ui, sans-serif; text-align: center; }
+  h1 { margin: 0 0 8px; font: 800 32px/1.1 Georgia, serif; letter-spacing: -1px; }
+  h1 span { color: #ff6b4a; }
+  p { margin: 0 0 20px; color: #77766f; }
+  a { display: inline-block; padding: 10px 18px; border-radius: 100px;
+    background: #c8ff62; color: #171714; font-weight: 650; text-decoration: none; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #171714; color: #f5f1e9; }
+    p { color: #a3a198; }
+  }
+</style>
+<main>
+  <h1>trove<span>.</span></h1>
+  <p>You're offline. Connect once on this device to keep your wardrobe here.</p>
+  <a href="/">Try again</a>
+</main>
+</html>`;
+  return new Response(html, {
+    status: 503,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}

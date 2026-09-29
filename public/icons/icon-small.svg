@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Trove</title>
+  <!-- Source of favicon.ico (16 and 32 px). The icon.svg drawing retuned for
+       tiny sizes: the mark fills the tile, the hook is roomier, and lines,
+       bar and dot sit on a 32-unit grid (32 units = 1 px at 16 px, 2 px at
+       32 px) so they render crisp instead of blurred. -->
+  <rect width="512" height="512" rx="116" fill="#171714"/>
+  <g fill="none" stroke="#c8ff62" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 148.6 204.4 A 60 60 0 1 1 268 196 C 268 220 208 244 208 268 L 208 288"/>
+    <path d="M 43 400 L 208 288 L 373 400 Z"/>
+    <circle cx="448" cy="384" r="32" fill="#ff6b4a" stroke="none"/>
+  </g>
+</svg>
