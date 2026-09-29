@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "trove-wardrobe",
-  "main": "dist/server/index.js",
+  "main": "./worker/index.ts",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
@@ -14,10 +14,12 @@
       }
     }
   },
+  // Built files (hashed JS/CSS, sw.js, manifest, icons) are served directly;
+  // they hold no wardrobe data. Every other path reaches the Worker.
   "assets": {
     "directory": "dist/client",
     "binding": "ASSETS",
-    "run_worker_first": true
+    "not_found_handling": "none"
   },
   "d1_databases": [
     {
@@ -31,10 +33,19 @@
     "binding": "IMAGES"
   },
   "vars": {
-    "B2_ENDPOINT": "s3.eu-central-003.backblazeb2.com",
-    "B2_BUCKET_NAME": "meeru-trove-wardrobe-images",
-    "B2_APPLICATION_KEY_ID": "003fc236fc3f0d00000000002",
     "B2_STORAGE_LIMIT_BYTES": "9000000000"
+  },
+  // Local dev reads these from .env; production reads Worker secrets.
+  // Account-specific values stay out of this public file.
+  "secrets": {
+    "required": [
+      "APP_PASSWORD_HASH",
+      "SESSION_SECRET",
+      "B2_ENDPOINT",
+      "B2_BUCKET_NAME",
+      "B2_APPLICATION_KEY_ID",
+      "B2_APPLICATION_KEY"
+    ]
   },
   "observability": {
     "enabled": true,

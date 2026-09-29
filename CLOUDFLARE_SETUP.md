@@ -75,8 +75,8 @@ hidden interactive prompt:
 npx wrangler secret put B2_APPLICATION_KEY --config wrangler.jsonc
 ```
 
-For local image uploads only, copy `.env.local.example` to `.env.local` and put
-the Backblaze values there. `.env.local` is ignored by Git.
+For local image uploads only, copy `.env.example` to `.env` and put the
+Backblaze values there. `.env` is ignored by Git.
 
 ## 5. Apply D1 migrations and validate
 
