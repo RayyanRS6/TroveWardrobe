@@ -56,7 +56,7 @@ migrations, then serves the app at http://localhost:5173. Local data lives in
 | `npm run db:generate` | Create a migration after editing `db/schema.ts` |
 | `npm run db:migrate:local` / `db:migrate:remote` | Apply migrations locally / in production |
 | `npm run deploy` | Build and deploy to Cloudflare |
-| `npm run set-password -- --production` | Set the live password (see below) |
+| `npm run set-password:production` | Set the live password (see below) |
 
 ## Deploying
 

@@ -48,8 +48,8 @@ every Worker URL on the account).
 | --- | --- |
 | Deploy new code | `npm run deploy` |
 | Apply new database migrations | `npm run db:migrate:remote` |
-| Change the app password (signs out every device) | `npm run set-password -- --production` |
-| Replace the Backblaze key | Update `.env`, then `npm run set-password -- --production` |
+| Change the app password (signs out every device) | `npm run set-password:production` |
+| Replace the Backblaze key | Update `.env`, then `npm run set-password:production` |
 
 ## Security model
 
@@ -73,10 +73,10 @@ every Worker URL on the account).
   it with
   `npx wrangler d1 execute trove-wardrobe --remote --command "DELETE FROM auth_throttle"`.
 - **Forgot the password:** set a new one with
-  `npm run set-password -- --production`.
+  `npm run set-password:production`.
 - **Uploads fail with a storage error:** check that the four `B2_*` secrets
   belong to the same Backblaze key and bucket, then rerun
-  `npm run set-password -- --production`.
+  `npm run set-password:production`.
 
 ## Backups
 

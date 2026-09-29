@@ -2,7 +2,7 @@
 //
 //   npm run set-password                    change the local dev password (.env)
 //   npm run set-password -- --generate      random local dev password, noted in .env
-//   npm run set-password -- --production    set the live password: asks for it, then
+//   npm run set-password:production         set the live password: asks for it, then
 //                                           uploads its hash, a new session secret and
 //                                           the Backblaze values from .env as Worker
 //                                           secrets. Nothing is written to disk.

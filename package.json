@@ -17,6 +17,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply trove-wardrobe --remote",
     "cf:types": "wrangler types --include-runtime false",
     "set-password": "node scripts/set-password.mjs",
+    "set-password:production": "node scripts/set-password.mjs --production",
     "icons": "node scripts/render-icons.mjs",
     "test": "npm run build && node --test \"tests/*.test.mjs\"",
     "lint": "eslint ."
