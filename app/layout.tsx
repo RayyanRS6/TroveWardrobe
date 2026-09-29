@@ -1,16 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Playfair_Display } from "next/font/google";
+import { DM_Sans, DM_Serif_Display } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+// Both are self-hosted by vinext at build time (the CSP allows fonts only
+// from this origin). DM Sans's optical-size axis sharpens small text.
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
+  subsets: ["latin", "latin-ext"],
+  axes: ["opsz"],
 });
 
-const playfair = Playfair_Display({
-  variable: "--font-display",
-  subsets: ["latin"],
+// DM Serif Display ships a single (400) weight: headings must not ask for
+// bold, or browsers would synthesize a smeared faux-bold.
+const dmSerifDisplay = DM_Serif_Display({
+  variable: "--font-dm-serif-display",
+  subsets: ["latin", "latin-ext"],
+  weight: "400",
 });
 
 // Browser chrome follows the device theme; the page draws under the notch
@@ -85,7 +91,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${playfair.variable}`}
+        className={`${dmSans.variable} ${dmSerifDisplay.variable}`}
       >
         {children}
       </body>

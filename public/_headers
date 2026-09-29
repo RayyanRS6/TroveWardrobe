@@ -15,6 +15,10 @@
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable
 
+# Sign-in page fonts (not content-hashed: rename the file if a font changes).
+/fonts/*
+  Cache-Control: public, max-age=2592000
+
 # Revalidate on every load so updates reach installed apps promptly.
 /sw.js
   Cache-Control: no-cache

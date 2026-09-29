@@ -1,5 +1,6 @@
 // The standalone sign-in page served at GET /login: plain HTML with one
-// nonce'd <style> and <script>, no app bundle, fonts or external requests.
+// nonce'd <style> and <script>, no app bundle and no external requests. Its
+// fonts are the app's own (DM Sans, DM Serif Display) from public/fonts.
 
 export type LoginNotice =
   | { kind: "none" }
@@ -12,6 +13,7 @@ export function loginPageCsp(nonce: string) {
     "default-src 'none'",
     `style-src 'nonce-${nonce}'`,
     `script-src 'nonce-${nonce}'`,
+    "font-src 'self'",
     "img-src 'self' data:",
     "form-action 'self'",
     "frame-ancestors 'none'",
@@ -65,6 +67,20 @@ function escapeHtml(value: string) {
 }
 
 const STYLES = `
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url(/fonts/dm-sans-latin.woff2) format("woff2");
+}
+@font-face {
+  font-family: "DM Serif Display";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/dm-serif-display-latin.woff2) format("woff2");
+}
 :root {
   --paper: #f5f1e9;
   --ink: #171714;
@@ -102,14 +118,15 @@ body {
   padding: 24px 16px;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.5 "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-synthesis-weight: none;
 }
 main { width: 100%; max-width: 360px; }
 h1 {
   margin: 0 0 4px;
-  font: 700 clamp(3rem, 14vw, 4rem)/1 Georgia, "Times New Roman", serif;
-  letter-spacing: -0.04em;
+  font: 400 clamp(3rem, 14vw, 4rem)/1 "DM Serif Display", Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
 }
 h1 span { color: var(--coral); }
 .lede { margin: 0 0 32px; color: var(--muted); }
@@ -148,7 +165,7 @@ button {
   border-radius: 999px;
   background: var(--lime);
   color: var(--ink);
-  font: 700 1rem/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 700 1rem/1 "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   cursor: pointer;
 }
 button:disabled { opacity: 0.7; cursor: progress; }
@@ -201,7 +218,9 @@ export function renderLoginPage(nonce: string, notice: LoginNotice) {
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f5f1e9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171714" media="(prefers-color-scheme: dark)">
-<link rel="icon" href="data:,">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>Sign in · Trove</title>
 <style nonce="${safeNonce}">${STYLES}</style>
 </head>

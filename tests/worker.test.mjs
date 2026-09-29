@@ -209,10 +209,18 @@ test("GET /login serves the standalone sign-in page with a strict CSP", async ()
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /form-action 'self'/);
+  assert.match(csp, /font-src 'self'/);
   assert.equal(response.headers.get("referrer-policy"), "same-origin");
 
   const html = await response.text();
   assert.match(html, /<meta name="referrer" content="same-origin">/);
+  for (const font of ["/fonts/dm-sans-latin.woff2", "/fonts/dm-serif-display-latin.woff2"]) {
+    assert.ok(html.includes(`url(${font})`), font);
+    // Loaded before sign-in, so it must be public.
+    const file = await send(font);
+    assert.equal(file.status, 200, font);
+    assert.ok((await file.arrayBuffer()).byteLength > 1000, font);
+  }
   assert.match(html, /action="\/api\/auth\/login"/);
   assert.match(html, /autocomplete="current-password"/);
   assert.match(html, /autocomplete="username"/);
@@ -408,6 +416,12 @@ test("the app page carries a CSP nonce on every script", async () => {
   for (const tag of scripts) {
     assert.ok(tag.includes(`nonce="${nonce}"`), `script without the nonce: ${tag}`);
   }
+
+  // Fonts are self-hosted: the CSP (font-src 'self') would block Google's CDN.
+  assert.ok(csp.includes("font-src 'self'"), csp);
+  assert.match(html, /_vinext_fonts\/dm-sans-[^"')]+\.woff2/);
+  assert.match(html, /_vinext_fonts\/dm-serif-display-[^"')]+\.woff2/);
+  assert.doesNotMatch(html, /fonts\.(googleapis|gstatic)\.com/);
 });
 
 test("tampered or unknown session cookies are rejected", async () => {

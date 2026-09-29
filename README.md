@@ -9,6 +9,7 @@ single-user app locked behind one password.
 | Layer | Technology |
 | --- | --- |
 | UI | React 19 + TypeScript, plain CSS (light and dark themes), lucide-react icons |
+| Fonts | DM Serif Display (headings) and DM Sans (text), self-hosted, SIL Open Font License |
 | Framework | Next.js App Router API via [vinext](https://github.com/cloudflare/vinext) 1.0 on Vite 8 |
 | Hosting | Cloudflare Workers (free plan, `workers.dev` URL) |
 | Database | Cloudflare D1 (SQLite); schema and migrations with Drizzle ORM |
