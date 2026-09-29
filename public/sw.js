@@ -1,11 +1,11 @@
 // Trove service worker: keeps the app shell and wardrobe photos available
-// offline. Wardrobe data itself lives in IndexedDB (app/WardrobeApp.tsx), so
+// offline. Wardrobe data itself lives in IndexedDB (app/lib/client/local-data.ts), so
 // every API call other than photos goes straight to the network.
 //
 // Caches (bump a version suffix to drop that cache on every device):
-//   trove-static-v3  GET /_next/static/*, /icons/*  cache-first. Build files
+//   trove-static-v4  GET /_next/static/*, /icons/*  cache-first. Build files
 //                    are content-hashed; icons refresh only with a new version.
-//   trove-pages-v3   page loads                      network-first (4 s), and
+//   trove-pages-v4   page loads                      network-first (4 s), and
 //                    only a signed-in "/" is kept, as the offline app shell.
 //   trove-images-v3  GET /api/images/*               cache-first by full URL,
 //                    newest ~800 kept.
@@ -22,8 +22,8 @@
 //                             keep what a page loaded before this worker
 //                             controlled it, by the rules above
 
-const STATIC_CACHE = "trove-static-v3";
-const PAGES_CACHE = "trove-pages-v3";
+const STATIC_CACHE = "trove-static-v4";
+const PAGES_CACHE = "trove-pages-v4";
 const IMAGES_CACHE = "trove-images-v3";
 const CURRENT_CACHES = [STATIC_CACHE, PAGES_CACHE, IMAGES_CACHE];
 const CACHE_PREFIX = "trove-";
@@ -283,16 +283,20 @@ function offlinePage() {
 <title>Trove is offline</title>
 <style>
   body { margin: 0; min-height: 100vh; display: grid; place-items: center;
-    padding: 24px; box-sizing: border-box; background: #f5f1e9; color: #171714;
-    font: 16px/1.5 system-ui, sans-serif; text-align: center; }
-  h1 { margin: 0 0 8px; font: 800 32px/1.1 Georgia, serif; letter-spacing: -1px; }
-  h1 span { color: #ff6b4a; }
-  p { margin: 0 0 20px; color: #77766f; }
-  a { display: inline-block; padding: 10px 18px; border-radius: 100px;
-    background: #c8ff62; color: #171714; font-weight: 650; text-decoration: none; }
+    padding: 24px; box-sizing: border-box; background: #f8f1f2; color: #1f0818;
+    font: 16px/1.5 "DM Sans", system-ui, sans-serif; text-align: center; }
+  h1 { margin: 0 0 8px; font: 400 40px/1.1 "DM Serif Display", Georgia, serif;
+    letter-spacing: -0.02em; }
+  h1 span { color: #f08caf; }
+  p { margin: 0 0 20px; color: #6b5362; }
+  a { display: inline-block; padding: 12px 20px; border-radius: 100px;
+    background: #1f0818; color: #f8eef1; font-weight: 600; text-decoration: none; }
+  a:focus-visible { outline: 3px solid #1f0818; outline-offset: 3px; }
   @media (prefers-color-scheme: dark) {
-    body { background: #171714; color: #f5f1e9; }
-    p { color: #a3a198; }
+    body { background: #170511; color: #f8eef1; }
+    p { color: #cbb1bf; }
+    a { background: #f4b6ce; color: #1f0818; }
+    a:focus-visible { outline-color: #f4b6ce; }
   }
 </style>
 <main>

@@ -81,30 +81,40 @@ const STYLES = `
   font-display: swap;
   src: url(/fonts/dm-serif-display-latin.woff2) format("woff2");
 }
+/* The app's plum + blush palette. Contrast (WCAG 2.2 AA) in both themes:
+   text and error >= 4.5:1, field border and focus ring >= 3:1 against page
+   and field. The button is whichever of plum and blush stands out more from
+   the page: plum on the light page, blush on the plum one. */
 :root {
-  --paper: #f5f1e9;
-  --ink: #171714;
-  --lime: #c8ff62;
-  --coral: #ff6b4a;
-  --bg: var(--paper);
-  --fg: var(--ink);
-  --muted: rgba(23, 23, 20, 0.62);
-  /* Field border and focus ring stay >= 3:1 against page and field. */
-  --line: #858176;
-  --focus: var(--ink);
-  --field: #fffdf8;
-  --error: #c23b1e;
+  --plum: #1F0818;
+  --plum-high: #3A1832;
+  --blush: #F4B6CE;
+  --rose: #F08CAF;
+  --ivory: #F8EEF1;
+  --bg: #F8F1F2;
+  --fg: var(--plum);
+  --muted: #6B5563;
+  --line: #8E7585;
+  --focus: var(--plum);
+  --field: #FFFAFB;
+  --error: #B3264F;
+  --button-bg: var(--plum);
+  --button-fg: var(--ivory);
+  --button-hover: var(--plum-high);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: var(--ink);
-    --fg: var(--paper);
-    --muted: rgba(245, 241, 233, 0.64);
-    --line: #7d796e;
-    --focus: var(--coral);
-    --field: #22211d;
-    --error: var(--coral);
+    --bg: var(--plum);
+    --fg: var(--ivory);
+    --muted: #BFA2B2;
+    --line: #8A6C7E;
+    --focus: var(--blush);
+    --field: #2B1024;
+    --error: #FF8A9A;
+    --button-bg: var(--blush);
+    --button-fg: var(--plum);
+    --button-hover: #F8C9DB;
     color-scheme: dark;
   }
 }
@@ -128,7 +138,8 @@ h1 {
   font: 400 clamp(3rem, 14vw, 4rem)/1 "DM Serif Display", Georgia, "Times New Roman", serif;
   letter-spacing: -0.02em;
 }
-h1 span { color: var(--coral); }
+h1 span { color: var(--rose); }
+::selection { background: var(--blush); color: var(--plum); }
 .lede { margin: 0 0 32px; color: var(--muted); }
 label { display: block; margin-bottom: 8px; font-weight: 600; }
 input[type="password"] {
@@ -139,7 +150,13 @@ input[type="password"] {
   border-radius: 14px;
   background: var(--field);
   color: var(--fg);
+  caret-color: var(--fg);
   font: inherit;
+}
+/* Keep the field on-theme when a password manager fills it. */
+input[type="password"]:-webkit-autofill {
+  -webkit-text-fill-color: var(--fg);
+  box-shadow: 0 0 0 100px var(--field) inset;
 }
 input[type="password"]:focus-visible, button:focus-visible {
   outline: 3px solid var(--focus);
@@ -163,12 +180,17 @@ button {
   height: 52px;
   border: 0;
   border-radius: 999px;
-  background: var(--lime);
-  color: var(--ink);
+  background: var(--button-bg);
+  color: var(--button-fg);
   font: 700 1rem/1 "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
+button:hover:not(:disabled) { background: var(--button-hover); }
 button:disabled { opacity: 0.7; cursor: progress; }
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+}
 `;
 
 // Wipes offline data left by an earlier session on this device: service
@@ -216,8 +238,8 @@ export function renderLoginPage(nonce: string, notice: LoginNotice) {
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="same-origin">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#f5f1e9" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#171714" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F8F1F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1F0818" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">

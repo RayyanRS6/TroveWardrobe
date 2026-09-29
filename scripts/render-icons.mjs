@@ -13,17 +13,38 @@
 //                               background, mark inside the 80% safe zone
 //   icons/apple-touch-icon.png  180 px, opaque (iOS rounds the corners itself)
 //   favicon.ico                 16 and 32 px PNGs in an ICO container
+//   manifest.webmanifest        icon URLs stamped with ?v=<hash of the file>
+//
+// Android draws the launch splash from the manifest's background_color plus
+// one of these icons, so the tile colour must equal background_color: then
+// the tile's edges vanish and the splash is one plain screen with the mark
+// centred. The script refuses to render if the two drift apart.
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { Resvg } from "@resvg/resvg-js";
 
 const PUBLIC_DIR = new URL("../public/", import.meta.url);
 const CANVAS = 512;
 // The maskable safe zone is a centred circle 80% of the icon wide (radius
-// 205 of 512); shrinking the mark this much keeps its corners well inside.
-const MASKABLE_SCALE = 0.87;
+// 205 of 512). The mark's farthest point (a bar corner, 199 out) lands at
+// 183 at this scale: inside with room to spare in a circular launcher mask,
+// and no smaller than needed on the splash, which also uses this icon.
+const MASKABLE_SCALE = 0.92;
 
 function readSource(path) {
   return readFileSync(new URL(path, PUBLIC_DIR), "utf8");
+}
+
+/** Throws unless the icon's tile colour is the manifest's background_color. */
+function checkSplashColour(source) {
+  const markup = source.replace(/<!--[\s\S]*?-->/g, "");
+  const tile = /<rect id="tile"[^>]*\sfill="([^"]+)"/.exec(markup)?.[1] ?? "";
+  const background = JSON.parse(readSource("manifest.webmanifest")).background_color ?? "";
+  if (tile.toLowerCase() !== background.toLowerCase()) {
+    throw new Error(
+      `icon.svg tile ${tile} must match manifest background_color ${background} (Android splash).`,
+    );
+  }
 }
 
 /**
@@ -84,8 +105,29 @@ function ico(images) {
   return Buffer.concat([header, ...entries, ...images.map(({ png }) => png)]);
 }
 
+/**
+ * Gives each manifest icon URL a hash of its file. public/sw.js serves
+ * /icons/* cache-first by full URL, so a redrawn icon under an unchanged URL
+ * would keep reaching installed apps (and their launch splash) as the old
+ * file. A new URL misses that cache, and Chrome's update check for an
+ * installed app sees the changed icon.
+ */
+function stampManifestIcons() {
+  const path = "manifest.webmanifest";
+  const stamped = readSource(path).replace(
+    /"src": "\/(icons\/[^"?]+)(?:\?v=[0-9a-f]*)?"/g,
+    (_, file) => {
+      const hash = createHash("sha256").update(readFileSync(new URL(file, PUBLIC_DIR)));
+      return `"src": "/${file}?v=${hash.digest("hex").slice(0, 10)}"`;
+    },
+  );
+  writeFileSync(new URL(path, PUBLIC_DIR), stamped);
+  console.log(`Wrote public/${path}`);
+}
+
 const icon = readSource("icons/icon.svg");
 const small = readSource("icons/icon-small.svg");
+checkSplashColour(icon);
 
 const outputs = {
   "icons/icon-192.png": renderPng(icon, 192),
@@ -98,3 +140,4 @@ for (const [path, contents] of Object.entries(outputs)) {
   writeFileSync(new URL(path, PUBLIC_DIR), contents);
   console.log(`Wrote public/${path}`);
 }
+stampManifestIcons();
