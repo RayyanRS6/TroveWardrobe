@@ -293,7 +293,7 @@ function offlinePage() {
     background: #1f0818; color: #f8eef1; font-weight: 600; text-decoration: none; }
   a:focus-visible { outline: 3px solid #1f0818; outline-offset: 3px; }
   @media (prefers-color-scheme: dark) {
-    body { background: #170511; color: #f8eef1; }
+    body { background: #170511; color: #ffffff; }
     p { color: #cbb1bf; }
     a { background: #f4b6ce; color: #1f0818; }
     a:focus-visible { outline-color: #f4b6ce; }

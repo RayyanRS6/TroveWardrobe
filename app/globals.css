@@ -69,7 +69,9 @@
     --surface-2: #35152e;
     --surface-3: #401b38;
     --raised: #35152e;
-    --ink: #f8eef1;
+    /* Main text is pure white in dark mode, for maximum legibility. */
+    --ink: #ffffff;
+    --plum-ink: #ffffff;
     --muted: #cbb1bf;
     --line: #47223f;
     --line-strong: #94708a;

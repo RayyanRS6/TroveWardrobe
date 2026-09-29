@@ -106,7 +106,7 @@ const STYLES = `
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: var(--plum);
-    --fg: var(--ivory);
+    --fg: #FFFFFF;
     --muted: #BFA2B2;
     --line: #8A6C7E;
     --focus: var(--blush);
