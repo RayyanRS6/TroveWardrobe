@@ -81,22 +81,22 @@ const STYLES = `
   font-display: swap;
   src: url(/fonts/dm-serif-display-latin.woff2) format("woff2");
 }
-/* The app's plum + blush palette. Contrast (WCAG 2.2 AA) in both themes:
+/* The app's palette: neutral pages (warm off-white, charcoal in dark mode)
+   with plum and blush as accents. Contrast (WCAG 2.2 AA) in both themes:
    text and error >= 4.5:1, field border and focus ring >= 3:1 against page
-   and field. The button is whichever of plum and blush stands out more from
-   the page: plum on the light page, blush on the plum one. */
+   and field. The button is plum on the light page, blush on the dark one. */
 :root {
   --plum: #1F0818;
   --plum-high: #3A1832;
   --blush: #F4B6CE;
   --rose: #F08CAF;
   --ivory: #F8EEF1;
-  --bg: #F8F1F2;
-  --fg: var(--plum);
-  --muted: #6B5563;
-  --line: #8E7585;
-  --focus: var(--plum);
-  --field: #FFFAFB;
+  --bg: #F5F1E9;
+  --fg: #171714;
+  --muted: #5E5B54;
+  --line: #8A867C;
+  --focus: #171714;
+  --field: #FFFDF8;
   --error: #B3264F;
   --button-bg: var(--plum);
   --button-fg: var(--ivory);
@@ -105,12 +105,12 @@ const STYLES = `
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: var(--plum);
+    --bg: #121210;
     --fg: #FFFFFF;
-    --muted: #BFA2B2;
-    --line: #8A6C7E;
+    --muted: #B9B6AD;
+    --line: #7D796F;
     --focus: var(--blush);
-    --field: #2B1024;
+    --field: #1C1B18;
     --error: #FF8A9A;
     --button-bg: var(--blush);
     --button-fg: var(--plum);
@@ -238,8 +238,8 @@ export function renderLoginPage(nonce: string, notice: LoginNotice) {
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="same-origin">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#F8F1F2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1F0818" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F5F1E9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121210" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">

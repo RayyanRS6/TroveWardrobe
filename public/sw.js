@@ -283,18 +283,18 @@ function offlinePage() {
 <title>Trove is offline</title>
 <style>
   body { margin: 0; min-height: 100vh; display: grid; place-items: center;
-    padding: 24px; box-sizing: border-box; background: #f8f1f2; color: #1f0818;
+    padding: 24px; box-sizing: border-box; background: #f5f1e9; color: #171714;
     font: 16px/1.5 "DM Sans", system-ui, sans-serif; text-align: center; }
   h1 { margin: 0 0 8px; font: 400 40px/1.1 "DM Serif Display", Georgia, serif;
     letter-spacing: -0.02em; }
   h1 span { color: #f08caf; }
-  p { margin: 0 0 20px; color: #6b5362; }
+  p { margin: 0 0 20px; color: #5e5b54; }
   a { display: inline-block; padding: 12px 20px; border-radius: 100px;
     background: #1f0818; color: #f8eef1; font-weight: 600; text-decoration: none; }
   a:focus-visible { outline: 3px solid #1f0818; outline-offset: 3px; }
   @media (prefers-color-scheme: dark) {
-    body { background: #170511; color: #ffffff; }
-    p { color: #cbb1bf; }
+    body { background: #121210; color: #ffffff; }
+    p { color: #b9b6ad; }
     a { background: #f4b6ce; color: #1f0818; }
     a:focus-visible { outline-color: #f4b6ce; }
   }

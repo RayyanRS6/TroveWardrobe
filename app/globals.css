@@ -23,25 +23,27 @@
   --on-blush: #1f0818;
   --rose: #f08caf;
 
-  --paper: #f8f1f2;
-  --surface: #fffafb;
-  --surface-2: #f3e8ec;
-  --surface-3: #eadbe2;
-  --raised: #fffafb;
-  --ink: #1f0818;
-  --muted: #6b5362;
-  --line: #ebd9e0;
-  --line-strong: #9a7889;
-  --focus: #1f0818;
+  /* Pages and cards are neutral (warm off-white, charcoal in dark mode);
+     plum is reserved for the sidebar and phone bar, blush for accents. */
+  --paper: #f5f1e9;
+  --surface: #fffdf8;
+  --surface-2: #efeae1;
+  --surface-3: #e6e0d5;
+  --raised: #fffdf8;
+  --ink: #171714;
+  --muted: #5e5b54;
+  --line: #e2ddd3;
+  --line-strong: #8a867c;
+  --focus: #171714;
 
-  --button-bg: #1f0818;
-  --button-fg: #fffafb;
-  --button-hover: #3a1832;
-  --selected-bg: #1f0818;
-  --selected-fg: #fffafb;
-  --hover: rgba(31, 8, 24, 0.05);
-  --hover-strong: rgba(31, 8, 24, 0.08);
-  --meter: #1f0818;
+  --button-bg: #171714;
+  --button-fg: #fffdf8;
+  --button-hover: #2e2c27;
+  --selected-bg: #171714;
+  --selected-fg: #fffdf8;
+  --hover: rgba(23, 23, 20, 0.05);
+  --hover-strong: rgba(23, 23, 20, 0.08);
+  --meter: #171714;
 
   --danger: #b0254f;
   --on-danger: #ffffff;
@@ -49,32 +51,32 @@
   --danger-text: #a3214a;
   --warn-soft: #f9eddb;
   --warn-text: #6b4500;
-  --ok: #2f7d52;
+  --ok: #2a7248;
 
-  --scrim: rgba(31, 8, 24, 0.48);
-  --glow: rgba(244, 182, 206, 0.38);
-  --shadow-color: rgba(31, 8, 24, 0.1);
+  --scrim: rgba(23, 23, 20, 0.48);
+  --glow: rgba(244, 182, 206, 0.22);
+  --shadow-color: rgba(23, 23, 20, 0.1);
   --shadow: 0 24px 60px var(--shadow-color);
   --shadow-soft: 0 12px 32px var(--shadow-color);
-  --scroll-thumb: rgba(31, 8, 24, 0.2);
-  --scroll-thumb-hover: rgba(31, 8, 24, 0.36);
+  --scroll-thumb: rgba(23, 23, 20, 0.2);
+  --scroll-thumb-hover: rgba(23, 23, 20, 0.36);
 
   --radius-card: 18px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #170511;
-    --surface: #2b1024;
-    --surface-2: #35152e;
-    --surface-3: #401b38;
-    --raised: #35152e;
+    --paper: #121210;
+    --surface: #1c1b18;
+    --surface-2: #26241f;
+    --surface-3: #2e2c27;
+    --raised: #26241f;
     /* Main text is pure white in dark mode, for maximum legibility. */
     --ink: #ffffff;
     --plum-ink: #ffffff;
-    --muted: #cbb1bf;
-    --line: #47223f;
-    --line-strong: #94708a;
+    --muted: #b9b6ad;
+    --line: #2e2c28;
+    --line-strong: #7d796f;
     --focus: #f4b6ce;
 
     --button-bg: #f4b6ce;
@@ -82,8 +84,8 @@
     --button-hover: #f8c9db;
     --selected-bg: #f4b6ce;
     --selected-fg: #1f0818;
-    --hover: rgba(248, 238, 241, 0.06);
-    --hover-strong: rgba(248, 238, 241, 0.1);
+    --hover: rgba(255, 255, 255, 0.06);
+    --hover-strong: rgba(255, 255, 255, 0.1);
     --meter: #f4b6ce;
 
     --danger: #ff91ad;
@@ -94,11 +96,11 @@
     --warn-text: #f3cf97;
     --ok: #86d5a6;
 
-    --scrim: rgba(8, 1, 6, 0.66);
-    --glow: rgba(244, 182, 206, 0.07);
+    --scrim: rgba(0, 0, 0, 0.62);
+    --glow: rgba(244, 182, 206, 0.04);
     --shadow-color: rgba(0, 0, 0, 0.45);
-    --scroll-thumb: rgba(248, 238, 241, 0.18);
-    --scroll-thumb-hover: rgba(248, 238, 241, 0.32);
+    --scroll-thumb: rgba(255, 255, 255, 0.18);
+    --scroll-thumb-hover: rgba(255, 255, 255, 0.32);
   }
 }
 

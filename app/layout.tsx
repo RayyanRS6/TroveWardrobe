@@ -24,8 +24,8 @@ const dmSerifDisplay = DM_Serif_Display({
 // safe-area insets.
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f8f1f2" },
-    { media: "(prefers-color-scheme: dark)", color: "#170511" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f1e9" },
+    { media: "(prefers-color-scheme: dark)", color: "#121210" },
   ],
   colorScheme: "light dark",
   viewportFit: "cover",
