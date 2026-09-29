@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, Search, X } from "lucide-react";
 import { useId, useMemo, useRef, useState } from "react";
 import { plural } from "../lib/client/format";
 import { OUTFIT_ITEMS_MAX, type WardrobeItem } from "../lib/wardrobe-options";
+import { CheckIcon, CloseIcon } from "./Icons";
 import { Photo } from "./Photo";
 
 type PiecePickerProps = {
@@ -24,7 +24,7 @@ export function toggledSelection(current: number[], id: number) {
 }
 
 function matches(item: WardrobeItem, needle: string) {
-  return [item.name, item.category, item.color, item.season].join(" ").toLowerCase().includes(needle);
+  return [item.name, item.category, item.color].join(" ").toLowerCase().includes(needle);
 }
 
 /** Chooses up to OUTFIT_ITEMS_MAX pieces, with search and a strip of the chosen ones. */
@@ -104,7 +104,7 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
         <ul className="chosen-strip" aria-label="Chosen pieces">
           {chosen.map((item, index) => (
             <li key={item.id}>
-              <Photo src={item.thumbUrl} alt="" className="chosen-photo" iconSize={18} />
+              <Photo src={item.thumbUrl} alt="" className="chosen-photo" quiet />
               <button
                 id={`${id}-remove-${item.id}`}
                 type="button"
@@ -113,7 +113,7 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
                 aria-label={`Remove ${item.name}`}
                 title={`Remove ${item.name}`}
               >
-                <X size={14} aria-hidden="true" />
+                <CloseIcon size={16} />
               </button>
             </li>
           ))}
@@ -128,7 +128,6 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
       )}
 
       <div className="search-box search-box-compact">
-        <Search size={18} aria-hidden="true" />
         <label htmlFor={`${id}-search`} className="visually-hidden">
           Search your pieces
         </label>
@@ -161,7 +160,7 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
             }}
             aria-label="Clear piece search"
           >
-            <X size={16} aria-hidden="true" />
+            <CloseIcon size={18} />
           </button>
         )}
       </div>
@@ -175,31 +174,35 @@ export function PiecePicker({ items, selected, onToggle, onClear, error, errorId
       </p>
 
       {visible.length ? (
-        <ul className="picker-grid">
-          {visible.map((item) => {
-            const isSelected = selected.includes(item.id);
-            const blocked = atLimit && !isSelected;
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={`picker-option${isSelected ? " is-selected" : ""}`}
-                  onClick={() => toggle(item.id)}
-                  aria-pressed={isSelected}
-                  aria-disabled={blocked || undefined}
-                  title={item.name}
-                >
-                  <Photo src={item.thumbUrl} alt="" className="picker-photo" iconSize={24} />
-                  <span className="picker-name">{item.name}</span>
-                  <span className="visually-hidden">, {item.category}</span>
-                  <span className="picker-check" aria-hidden="true">
-                    {isSelected && <Check size={14} strokeWidth={3} />}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        // A card of its own that scrolls inside its rounded frame, so a long
+        // wardrobe never pushes the rest of the form far away.
+        <div className="picker-well">
+          <ul className="picker-grid picker-scroll" aria-label="Your pieces">
+            {visible.map((item) => {
+              const isSelected = selected.includes(item.id);
+              const blocked = atLimit && !isSelected;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`picker-option${isSelected ? " is-selected" : ""}`}
+                    onClick={() => toggle(item.id)}
+                    aria-pressed={isSelected}
+                    aria-disabled={blocked || undefined}
+                    title={item.name}
+                  >
+                    <Photo src={item.thumbUrl} alt="" className="picker-photo" quiet />
+                    <span className="picker-name">{item.name}</span>
+                    <span className="visually-hidden">, {item.category}</span>
+                    <span className="picker-check" aria-hidden="true">
+                      {isSelected && <CheckIcon size={16} />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       ) : (
         <p className="picker-empty">
           {needle ? "No pieces match that search." : "Add some pieces to your wardrobe first."}

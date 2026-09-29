@@ -28,6 +28,7 @@ import {
   apiRequest,
   errorMessage,
   isSignedOutError,
+  jsonRequest,
 } from "./lib/client/api";
 import { plural } from "./lib/client/format";
 import { useGreeting } from "./lib/client/hooks";
@@ -44,10 +45,11 @@ import {
   parseSnapshot,
   parseWardrobe,
   photoUrls,
+  toCategory,
   wardrobeReducer,
 } from "./lib/client/wardrobe-state";
 import {
-  PRESET_CATEGORIES,
+  UNCATEGORIZED,
   type Outfit,
   type StorageUsage,
   type WardrobeItem,
@@ -62,13 +64,20 @@ type DialogState =
   | { kind: "edit-outfit"; id: number }
   | { kind: "account" };
 
-type DeleteTarget = {
-  kind: "item" | "outfit";
-  id: number;
-  name: string;
-  /** Items only: how many outfits include it. */
-  usedIn: number;
-};
+type DeleteTarget =
+  | {
+      kind: "item" | "outfit";
+      id: number;
+      name: string;
+      /** Items only: how many outfits include it. */
+      usedIn: number;
+    }
+  | {
+      kind: "category";
+      name: string;
+      /** Its pieces, which move to UNCATEGORIZED. */
+      count: number;
+    };
 
 // Re-sync when the tab comes back after this long.
 const RESYNC_AFTER_MS = 30_000;
@@ -263,9 +272,17 @@ export default function WardrobeApp() {
     [itemsById],
   );
 
-  // A filter whose last piece was deleted falls back to "All".
+  // Filter chips: only categories that have pieces.
+  const filledCategories = useMemo(
+    () => categories.filter((category) => category.count > 0),
+    [categories],
+  );
+  const categoryNames = useMemo(() => categories.map((category) => category.name), [categories]);
+
+  // A filter whose last piece was deleted (or moved) falls back to "All".
   const activeKey =
-    activeCategory && categories.some((category) => categoryKey(category.name) === categoryKey(activeCategory))
+    activeCategory &&
+    filledCategories.some((category) => categoryKey(category.name) === categoryKey(activeCategory))
       ? categoryKey(activeCategory)
       : null;
 
@@ -275,19 +292,9 @@ export default function WardrobeApp() {
       (item) =>
         (!activeKey || categoryKey(item.category) === activeKey) &&
         (!needle ||
-          [item.name, item.category, item.color, item.season].join(" ").toLowerCase().includes(needle)),
+          [item.name, item.category, item.color].join(" ").toLowerCase().includes(needle)),
     );
   }, [items, activeKey, search]);
-
-  const categorySuggestions = useMemo(() => {
-    const seen = new Set<string>();
-    return [...categories.map((category) => category.name), ...PRESET_CATEGORIES].filter((name) => {
-      const key = categoryKey(name);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [categories]);
 
   const coverOf = useCallback(
     (category: string) => items.find((item) => categoryKey(item.category) === categoryKey(category)),
@@ -396,11 +403,96 @@ export default function WardrobeApp() {
     setDeleteTarget({ kind, id, name, usedIn });
   }
 
+  function askDeleteCategory(name: string) {
+    if (readOnlyMessage) {
+      notify(readOnlyMessage, "info");
+      return;
+    }
+    const category = categories.find((entry) => entry.name === name);
+    if (!category) return;
+    // The API refuses this too: its pieces would have nowhere to go.
+    if (categoryKey(name) === categoryKey(UNCATEGORIZED) && category.count) {
+      notify(
+        `${UNCATEGORIZED} still has ${plural(category.count, "piece")}. Give ${
+          category.count === 1 ? "it" : "them"
+        } another category first.`,
+        "info",
+      );
+      return;
+    }
+    setDeleteError(null);
+    setDeleting(false);
+    setDeleteTarget({ kind: "category", name: category.name, count: category.count });
+  }
+
+  /** Adds a category; resolves to a message for the user, or null once added. */
+  async function addCategory(name: string): Promise<string | null> {
+    if (readOnlyMessage) return readOnlyMessage;
+    try {
+      const body = await apiRequest<{ category?: unknown }>(
+        "/api/categories",
+        jsonRequest("POST", { name }),
+      );
+      const category = toCategory(body.category);
+      if (!category) {
+        throw new ApiError("server", 200, "Trove sent a reply it couldn't read. Please refresh.");
+      }
+      markChanged();
+      dispatch({ type: "category-added", category });
+      notify(`“${category.name}” added to your categories`);
+      return null;
+    } catch (error) {
+      if (isSignedOutError(error)) return null;
+      if (error instanceof ApiError && error.kind === "offline") goOffline();
+      return errorMessage(error, "This category couldn't be added. Please try again.");
+    }
+  }
+
+  async function confirmCategoryDelete(target: Extract<DeleteTarget, { kind: "category" }>) {
+    let moved = target.count;
+    let alreadyGone = false;
+    try {
+      const body = await apiRequest<{ moved?: unknown }>(
+        `/api/categories/${encodeURIComponent(target.name)}`,
+        { method: "DELETE" },
+      );
+      if (typeof body.moved === "number") moved = body.moved;
+    } catch (error) {
+      if (isSignedOutError(error)) return;
+      if (error instanceof ApiError && error.status === 404) {
+        alreadyGone = true;
+      } else {
+        if (error instanceof ApiError && error.kind === "offline") goOffline();
+        setDeleteError(errorMessage(error, "This category couldn't be deleted. Please try again."));
+        setDeleting(false);
+        return;
+      }
+    }
+
+    markChanged();
+    dispatch({ type: "category-removed", name: target.name });
+    // Changed on another device meanwhile: fetch the real list and counts.
+    if (alreadyGone || moved !== target.count) resync();
+    setDeleting(false);
+    setDeleteTarget(null);
+    notifyAfterClose(
+      alreadyGone
+        ? `“${target.name}” was already deleted`
+        : moved
+          ? `“${target.name}” deleted. ${plural(moved, "piece")} moved to ${UNCATEGORIZED}.`
+          : `“${target.name}” deleted`,
+    );
+  }
+
   async function confirmDelete() {
     const target = deleteTarget;
     if (!target || deleting) return;
     setDeleting(true);
     setDeleteError(null);
+    if (target.kind === "category") {
+      await confirmCategoryDelete(target);
+      return;
+    }
 
     let alreadyGone = false;
     try {
@@ -480,7 +572,7 @@ export default function WardrobeApp() {
         return (
           <ItemForm
             {...sharedFormProps}
-            categorySuggestions={categorySuggestions}
+            categories={categoryNames}
             onCancel={closeDialog}
             onSaved={(item, photoChanged) => handleItemSaved(item, photoChanged, true)}
             onMissing={(id) => handleMissing("item", id)}
@@ -493,7 +585,7 @@ export default function WardrobeApp() {
           <ItemForm
             {...sharedFormProps}
             item={item}
-            categorySuggestions={categorySuggestions}
+            categories={categoryNames}
             onCancel={() => setDialog({ kind: "item", id: item.id })}
             onSaved={(saved, photoChanged) => handleItemSaved(saved, photoChanged, false)}
             onMissing={(id) => handleMissing("item", id)}
@@ -631,7 +723,7 @@ export default function WardrobeApp() {
             <WardrobeView
               items={items}
               visibleItems={visibleItems}
-              categories={categories}
+              categories={filledCategories}
               activeCategory={activeKey ? activeCategory : null}
               onCategoryChange={setActiveCategory}
               search={search}
@@ -663,7 +755,8 @@ export default function WardrobeApp() {
                 // The pressed row goes with this view: focus the new view's title.
                 window.setTimeout(() => document.getElementById("view-title")?.focus());
               }}
-              onAdd={() => startAdd("item")}
+              onAddCategory={addCategory}
+              onDeleteCategory={askDeleteCategory}
             />
           )}
         </div>
@@ -692,12 +785,16 @@ export default function WardrobeApp() {
         <ConfirmDelete
           name={deleteTarget.name}
           message={
-            deleteTarget.kind === "item"
-              ? "The piece and its photo are removed for good."
-              : "The outfit is removed. Its pieces stay in your wardrobe."
+            deleteTarget.kind === "category"
+              ? deleteTarget.count
+                ? `Its ${plural(deleteTarget.count, "piece")} will move to ${UNCATEGORIZED}.`
+                : "No pieces use it."
+              : deleteTarget.kind === "item"
+                ? "The piece and its photo are removed for good."
+                : "The outfit is removed. Its pieces stay in your wardrobe."
           }
           warning={
-            deleteTarget.usedIn
+            deleteTarget.kind !== "category" && deleteTarget.usedIn
               ? `Used in ${plural(deleteTarget.usedIn, "outfit")}. It will be removed from ${
                   deleteTarget.usedIn === 1 ? "it" : "them"
                 }.`

@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { formatDate, plural } from "../lib/client/format";
 import type { Outfit, WardrobeItem } from "../lib/wardrobe-options";
 import { DialogHeader } from "./Dialog";
@@ -57,10 +56,9 @@ export function OutfitDetail({
               {pieces.map((piece) => (
                 <li key={piece.id}>
                   <button type="button" className="link-row" onClick={() => onOpenItem(piece.id)}>
-                    <Photo src={piece.thumbUrl} alt="" className="link-row-photo" iconSize={20} />
+                    <Photo src={piece.thumbUrl} alt="" className="link-row-photo" quiet />
                     <span className="link-row-text">{piece.name}</span>
                     <span className="link-row-meta">{piece.category}</span>
-                    <ChevronRight size={18} aria-hidden="true" />
                   </button>
                 </li>
               ))}
@@ -80,7 +78,6 @@ export function OutfitDetail({
             onClick={onDelete}
             aria-disabled={Boolean(readOnlyMessage) || undefined}
           >
-            <Trash2 size={18} aria-hidden="true" />
             Delete
           </button>
           <button
@@ -89,7 +86,6 @@ export function OutfitDetail({
             onClick={onEdit}
             aria-disabled={Boolean(readOnlyMessage) || undefined}
           >
-            <Pencil size={18} aria-hidden="true" />
             Edit
           </button>
         </div>

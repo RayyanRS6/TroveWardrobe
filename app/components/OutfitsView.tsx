@@ -1,6 +1,5 @@
 "use client";
 
-import { PackageOpen, Shirt, Sparkles } from "lucide-react";
 import { plural } from "../lib/client/format";
 import type { Outfit, WardrobeItem } from "../lib/wardrobe-options";
 import { Photo } from "./Photo";
@@ -75,15 +74,8 @@ export function OutfitsView({
               ? "Combine what you own into ready-to-wear looks."
               : "Add a few clothes first, then combine them into outfits."
           }
-          icon={<Sparkles size={42} strokeWidth={1.5} />}
-          tone="lavender"
           action={
             <button type="button" className="button button-primary button-inline" onClick={onAdd}>
-              {hasItems ? (
-                <Sparkles size={18} aria-hidden="true" />
-              ) : (
-                <PackageOpen size={18} aria-hidden="true" />
-              )}
               {hasItems ? "Create an outfit" : "Add clothing"}
             </button>
           }
@@ -102,11 +94,9 @@ export function OutfitCollage({ pieces, large = false }: { pieces: WardrobeItem[
       aria-hidden="true"
     >
       {shown.length ? (
-        shown.map((piece) => <Photo key={piece.id} src={piece.thumbUrl} alt="" iconSize={24} />)
+        shown.map((piece) => <Photo key={piece.id} src={piece.thumbUrl} alt="" quiet />)
       ) : (
-        <span className="collage-empty">
-          <Shirt size={40} strokeWidth={1.5} />
-        </span>
+        <span className="collage-empty">No pieces</span>
       )}
     </div>
   );

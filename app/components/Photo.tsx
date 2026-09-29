@@ -1,6 +1,5 @@
 "use client";
 
-import { Shirt } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 
 type PhotoProps = {
@@ -10,7 +9,8 @@ type PhotoProps = {
   className?: string;
   /** Eager for the photo a dialog opens with; lazy for grids. */
   eager?: boolean;
-  iconSize?: number;
+  /** Small thumbnails: a missing photo is a plain tile, with no words. */
+  quiet?: boolean;
 };
 
 // Bumped after every sync, so photos that failed to load (offline, or a
@@ -32,16 +32,16 @@ function subscribeToRetries(onChange: () => void) {
 
 /**
  * A wardrobe photo from /api/images (the session cookie authorizes it). If it
- * cannot load (offline and not cached yet), a placeholder shows instead.
+ * cannot load (offline and not cached yet), a quiet placeholder shows instead.
  */
-export function Photo({ src, alt, className = "", eager = false, iconSize = 32 }: PhotoProps) {
+export function Photo({ src, alt, className = "", eager = false, quiet = false }: PhotoProps) {
   const round = useSyncExternalStore(subscribeToRetries, () => retryRound, () => 0);
   const [failed, setFailed] = useState<{ src: string; round: number } | null>(null);
 
   if (failed && failed.src === src && failed.round === round) {
     return (
       <span className={`photo-fallback ${className}`} role={alt ? "img" : undefined} aria-label={alt || undefined}>
-        <Shirt size={iconSize} strokeWidth={1.5} aria-hidden="true" />
+        {!quiet && <span aria-hidden="true">Photo unavailable</span>}
       </span>
     );
   }

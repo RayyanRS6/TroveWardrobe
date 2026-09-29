@@ -1,6 +1,5 @@
 "use client";
 
-import { LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
 import { useId } from "react";
 import { Dialog } from "./Dialog";
 
@@ -39,19 +38,11 @@ export function ConfirmDelete({
       onClose={onCancel}
     >
       <div className="confirm">
-        <span className="danger-icon" aria-hidden="true">
-          <Trash2 size={22} />
-        </span>
         <h2 id={titleId} className="confirm-title">
           Delete “{name}”?
         </h2>
         <div id={descriptionId} className="confirm-copy">
-          {warning && (
-            <p className="confirm-warning">
-              <TriangleAlert size={16} aria-hidden="true" />
-              {warning}
-            </p>
-          )}
+          {warning && <p className="confirm-warning">{warning}</p>}
           <p>{message}</p>
         </div>
         {error && (
@@ -79,7 +70,6 @@ export function ConfirmDelete({
             }}
             aria-disabled={busy || undefined}
           >
-            {busy && <LoaderCircle className="spin" size={18} aria-hidden="true" />}
             {busy ? "Deleting…" : "Delete"}
           </button>
         </div>

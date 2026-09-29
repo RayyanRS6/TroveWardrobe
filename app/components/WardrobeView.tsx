@@ -1,10 +1,10 @@
 "use client";
 
-import { Plus, Search, Shirt, X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
 import { plural } from "../lib/client/format";
 import { categoryKey } from "../lib/client/wardrobe-state";
 import type { CategoryCount, WardrobeItem } from "../lib/wardrobe-options";
+import { CloseIcon } from "./Icons";
 import { Photo } from "./Photo";
 import { EmptyState, LoadingGrid } from "./Placeholders";
 
@@ -14,6 +14,7 @@ type WardrobeViewProps = {
   items: WardrobeItem[];
   /** Items after the search and category filter. */
   visibleItems: WardrobeItem[];
+  /** The categories that have pieces (one filter chip each). */
   categories: CategoryCount[];
   /** null = every category ("All"). */
   activeCategory: string | null;
@@ -76,7 +77,6 @@ export function WardrobeView({
       {items.length > 0 && (
         <div className="toolbar">
           <div className="search-box" role="search">
-            <Search size={19} aria-hidden="true" />
             <label htmlFor={`${id}-search`} className="visually-hidden">
               Search your wardrobe
             </label>
@@ -85,7 +85,7 @@ export function WardrobeView({
               type="search"
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search names, colours, seasons…"
+              placeholder="Search names, categories, colours…"
               autoComplete="off"
               enterKeyHint="search"
             />
@@ -99,7 +99,7 @@ export function WardrobeView({
                 }}
                 aria-label="Clear search"
               >
-                <X size={16} aria-hidden="true" />
+                <CloseIcon size={18} />
               </button>
             )}
           </div>
@@ -141,8 +141,6 @@ export function WardrobeView({
           kicker="Nothing here"
           title="No pieces match that."
           text="Try another search or category, or see your whole collection."
-          icon={<Search size={40} strokeWidth={1.5} />}
-          tone="blue"
           action={
             <button
               type="button"
@@ -155,7 +153,6 @@ export function WardrobeView({
                 document.getElementById("view-title")?.focus();
               }}
             >
-              <X size={18} aria-hidden="true" />
               Clear filters
             </button>
           }
@@ -165,10 +162,8 @@ export function WardrobeView({
           kicker="A fresh start"
           title="Meet your digital wardrobe."
           text="Photograph your first piece and never forget what you own again."
-          icon={<Shirt size={44} strokeWidth={1.5} />}
           action={
             <button type="button" className="button button-primary button-inline" onClick={onAdd}>
-              <Plus size={18} aria-hidden="true" />
               Add your first piece
             </button>
           }
@@ -179,7 +174,6 @@ export function WardrobeView({
 }
 
 function ItemCard({ item, onOpen }: { item: WardrobeItem; onOpen: () => void }) {
-  const meta = [item.color, item.season].filter(Boolean).join(" · ");
   return (
     <li className="item-card">
       <div className="card-photo">
@@ -192,7 +186,7 @@ function ItemCard({ item, onOpen }: { item: WardrobeItem; onOpen: () => void }) 
             {item.name}
           </button>
         </h3>
-        {meta && <p className="card-meta">{meta}</p>}
+        {item.color && <p className="card-meta">{item.color}</p>}
       </div>
     </li>
   );

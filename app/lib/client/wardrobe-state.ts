@@ -4,6 +4,7 @@
 
 import {
   PRESET_CATEGORIES,
+  UNCATEGORIZED,
   type CategoryCount,
   type Outfit,
   type WardrobeItem,
@@ -12,6 +13,7 @@ import {
 export type WardrobeData = {
   items: WardrobeItem[];
   outfits: Outfit[];
+  /** Every category (managed in the Categories view), pieces or not. */
   categories: CategoryCount[];
 };
 
@@ -31,7 +33,10 @@ export type WardrobeAction =
   | { type: "item-saved"; item: WardrobeItem }
   | { type: "item-removed"; id: number }
   | { type: "outfit-saved"; outfit: Outfit }
-  | { type: "outfit-removed"; id: number };
+  | { type: "outfit-removed"; id: number }
+  | { type: "category-added"; category: CategoryCount }
+  /** Its pieces move to UNCATEGORIZED, as the API does. */
+  | { type: "category-removed"; name: string };
 
 export const INITIAL_WARDROBE: WardrobeState = {
   data: { items: [], outfits: [], categories: [] },
@@ -41,13 +46,17 @@ export const INITIAL_WARDROBE: WardrobeState = {
 
 export const categoryKey = (name: string) => name.toLowerCase();
 
+const byName = (a: CategoryCount, b: CategoryCount) =>
+  a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+
 const presetByKey = new Map<string, string>(
   PRESET_CATEGORIES.map((preset) => [categoryKey(preset), preset]),
 );
 
 /**
- * Categories in use, grouped like GET /api/categories: case-insensitively,
- * named by the preset spelling or else the most-used one, sorted by name.
+ * Categories in use, rebuilt from the pieces: case-insensitively, named by
+ * the preset spelling or else the most-used one, sorted by name. Only for
+ * copies saved before categories were managed (or an unreadable list).
  */
 export function deriveCategories(items: WardrobeItem[]): CategoryCount[] {
   const groups = new Map<string, Map<string, { count: number; firstId: number }>>();
@@ -76,11 +85,29 @@ export function deriveCategories(items: WardrobeItem[]): CategoryCount[] {
       }
       return { name: presetByKey.get(key) ?? best.name, count: total };
     })
-    .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+    .sort(byName);
+}
+
+/**
+ * The category list with fresh piece counts. Categories stay listed (in their
+ * spelling) when they become empty; a category that only a piece names so far
+ * (the API created it along with that piece) joins the list.
+ */
+export function recountCategories(categories: CategoryCount[], items: WardrobeItem[]) {
+  const counted = new Map(
+    categories.map((category) => [categoryKey(category.name), { ...category, count: 0 }]),
+  );
+  for (const item of items) {
+    const key = categoryKey(item.category);
+    const entry = counted.get(key) ?? { name: item.category, count: 0 };
+    entry.count += 1;
+    counted.set(key, entry);
+  }
+  return [...counted.values()].sort(byName);
 }
 
 function withItems(data: WardrobeData, items: WardrobeItem[], outfits = data.outfits) {
-  return { items, outfits, categories: deriveCategories(items) };
+  return { items, outfits, categories: recountCategories(data.categories, items) };
 }
 
 export function wardrobeReducer(state: WardrobeState, action: WardrobeAction): WardrobeState {
@@ -127,6 +154,26 @@ export function wardrobeReducer(state: WardrobeState, action: WardrobeAction): W
         ...state.data,
         outfits: state.data.outfits.filter((outfit) => outfit.id !== action.id),
       });
+    case "category-added": {
+      const key = categoryKey(action.category.name);
+      const others = state.data.categories.filter((category) => categoryKey(category.name) !== key);
+      return confirmed({
+        ...state.data,
+        categories: recountCategories([...others, action.category], state.data.items),
+      });
+    }
+    case "category-removed": {
+      const key = categoryKey(action.name);
+      const remaining = state.data.categories.filter((category) => categoryKey(category.name) !== key);
+      // Moved pieces take the listed spelling of "Uncategorized", if it exists.
+      const fallback =
+        remaining.find((category) => categoryKey(category.name) === categoryKey(UNCATEGORIZED))?.name ??
+        UNCATEGORIZED;
+      const items = state.data.items.map((item) =>
+        categoryKey(item.category) === key ? { ...item, category: fallback } : item,
+      );
+      return confirmed({ ...state.data, items, categories: recountCategories(remaining, items) });
+    }
   }
 }
 
@@ -147,7 +194,6 @@ export function toItem(value: unknown): WardrobeItem | null {
     name: text(value.name),
     category: text(value.category),
     color: text(value.color),
-    season: text(value.season),
     imageUrl: value.imageUrl,
     // Copies saved before thumbnails existed fall back to the full photo.
     thumbUrl: text(value.thumbUrl) || value.imageUrl,
@@ -166,12 +212,18 @@ export function toOutfit(value: unknown): Outfit | null {
   };
 }
 
+/** One category from the API ({name, count}), or null. */
+export function toCategory(value: unknown): CategoryCount | null {
+  if (!isRecord(value) || typeof value.name !== "string" || !value.name) return null;
+  return {
+    name: value.name,
+    count: typeof value.count === "number" && value.count >= 0 ? value.count : 0,
+  };
+}
+
 function toCategories(value: unknown): CategoryCount[] | null {
   if (!Array.isArray(value)) return null;
-  const categories = value.filter(
-    (entry): entry is CategoryCount =>
-      isRecord(entry) && typeof entry.name === "string" && typeof entry.count === "number",
-  );
+  const categories = value.map(toCategory).filter((entry): entry is CategoryCount => entry !== null);
   return categories.length === value.length ? categories : null;
 }
 
@@ -202,7 +254,12 @@ export function parseSnapshot(value: unknown): WardrobeData | null {
   const outfits = listOf(value.outfits, toOutfit);
   if (!items || !outfits) return null;
   // Older copies stored category names only; counts are rebuilt from items.
-  return { items, outfits, categories: toCategories(value.categories) ?? deriveCategories(items) };
+  const categories = toCategories(value.categories);
+  return {
+    items,
+    outfits,
+    categories: categories ? recountCategories(categories, items) : deriveCategories(items),
+  };
 }
 
 /** Every photo URL the current wardrobe uses (kept by the service worker). */

@@ -1,6 +1,5 @@
 "use client";
 
-import { ImagePlus, LoaderCircle, RotateCcw } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { PHOTO_ACCEPT } from "../lib/client/photo";
 import { Photo } from "./Photo";
@@ -116,20 +115,10 @@ export function PhotoField({
           if (file && !disabled) onPick(file);
         }}
       >
-        {preview ? (
-          <Photo src={preview} alt="" className="photo-drop-image" eager />
-        ) : (
-          <span className="photo-drop-empty" aria-hidden="true">
-            <span className="upload-icon">
-              <ImagePlus size={26} />
-            </span>
-          </span>
-        )}
+        {preview && <Photo src={preview} alt="" className="photo-drop-image" eager />}
         <span className={hasImage ? "photo-drop-badge" : "photo-drop-copy"} id={`${id}-action`}>
           {choice.status === "preparing" ? (
-            <>
-              <LoaderCircle className="spin" size={16} aria-hidden="true" /> Preparing…
-            </>
+            <span className="photo-drop-busy">Preparing photo…</span>
           ) : hasImage ? (
             "Change photo"
           ) : unpreviewable ? (
@@ -139,9 +128,12 @@ export function PhotoField({
             </>
           ) : (
             <>
-              <strong>Add a clear photo</strong>
+              <strong className="photo-drop-title">Add a clear photo</strong>
               <span className="photo-drop-hint">
-                Choose from your gallery or camera<span className="pointer-fine">, or drop it here</span>
+                From your gallery or camera<span className="pointer-fine">, or drop it here</span>
+              </span>
+              <span className="photo-drop-cta" aria-hidden="true">
+                Choose photo
               </span>
             </>
           )}
@@ -165,7 +157,6 @@ export function PhotoField({
             document.getElementById(id)?.focus();
           }}
         >
-          <RotateCcw size={15} aria-hidden="true" />
           Keep the current photo
         </button>
       )}

@@ -19,20 +19,14 @@ type EmptyStateProps = {
   kicker: string;
   title: string;
   text: string;
-  icon: ReactNode;
-  tone?: "lime" | "lavender" | "blue";
   action?: ReactNode;
 };
 
-/** Friendly illustration + message for an empty list. */
-export function EmptyState({ kicker, title, text, icon, tone = "lime", action }: EmptyStateProps) {
+/** A calm, words-only message for an empty list. */
+export function EmptyState({ kicker, title, text, action }: EmptyStateProps) {
   return (
     <section className="empty-state">
-      <div className={`empty-art empty-art-${tone}`} aria-hidden="true">
-        <span className="art-card art-card-left" />
-        <span className="art-card art-card-right" />
-        <span className="art-icon">{icon}</span>
-      </div>
+      <span className="empty-rule" aria-hidden="true" />
       <p className="kicker">{kicker}</p>
       <h3 className="empty-title">{title}</h3>
       <p className="empty-text">{text}</p>

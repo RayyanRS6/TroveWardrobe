@@ -1,7 +1,5 @@
 "use client";
 
-import { Check, Info, RefreshCw, TriangleAlert } from "lucide-react";
-
 export type Toast = {
   id: number;
   message: string;
@@ -16,25 +14,24 @@ type ToasterProps = {
 
 /**
  * Short confirmations in a polite live region (always mounted, so screen
- * readers hear every change), plus the "new version" prompt.
+ * readers hear every change), plus the "new version" prompt. Words only: a
+ * small dot marks the tone.
  */
 export function Toaster({ toast, onUpdate }: ToasterProps) {
-  const Icon = toast?.tone === "error" ? TriangleAlert : toast?.tone === "info" ? Info : Check;
   return (
     <div className="toast-stack">
       <div className="toast-region" role="status" aria-live="polite" aria-atomic="true">
         {toast && (
-          <p className={`toast toast-${toast.tone}`} key={toast.id}>
-            <Icon size={17} aria-hidden="true" />
+          <p className={`toast on-plum toast-${toast.tone}`} key={toast.id}>
+            <span className="toast-dot" aria-hidden="true" />
             <span>{toast.message}</span>
           </p>
         )}
       </div>
       {onUpdate && (
-        <div className="update-banner" role="status">
+        <div className="update-banner on-plum" role="status">
           <span>A new version of Trove is ready.</span>
           <button type="button" className="button button-accent button-small" onClick={onUpdate}>
-            <RefreshCw size={16} aria-hidden="true" />
             Update
           </button>
         </div>

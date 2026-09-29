@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronRight, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { formatDate, plural } from "../lib/client/format";
 import type { Outfit, WardrobeItem } from "../lib/wardrobe-options";
 import { DialogHeader } from "./Dialog";
@@ -36,7 +35,7 @@ export function ItemDetail({
       <DialogHeader titleId={titleId} kicker={item.category} title={item.name} onClose={onClose} />
       <div className="detail detail-item">
         <div className="detail-photo">
-          <Photo key={item.imageUrl} src={item.imageUrl} alt={item.name} eager iconSize={48} />
+          <Photo key={item.imageUrl} src={item.imageUrl} alt={item.name} eager />
         </div>
 
         <div className="detail-info">
@@ -48,10 +47,6 @@ export function ItemDetail({
             <div>
               <dt>Colour</dt>
               <dd>{item.color || "Not set"}</dd>
-            </div>
-            <div>
-              <dt>Season</dt>
-              <dd>{item.season}</dd>
             </div>
             {added && (
               <div>
@@ -76,10 +71,8 @@ export function ItemDetail({
                       className="link-row"
                       onClick={() => onOpenOutfit(outfit.id)}
                     >
-                      <Sparkles size={18} aria-hidden="true" />
                       <span className="link-row-text">{outfit.name}</span>
                       <span className="link-row-meta">{outfit.occasion}</span>
-                      <ChevronRight size={18} aria-hidden="true" />
                     </button>
                   </li>
                 ))}
@@ -95,7 +88,6 @@ export function ItemDetail({
               onClick={onDelete}
               aria-disabled={Boolean(readOnlyMessage) || undefined}
             >
-              <Trash2 size={18} aria-hidden="true" />
               Delete
             </button>
             <button
@@ -104,7 +96,6 @@ export function ItemDetail({
               onClick={onEdit}
               aria-disabled={Boolean(readOnlyMessage) || undefined}
             >
-              <Pencil size={18} aria-hidden="true" />
               Edit
             </button>
           </div>

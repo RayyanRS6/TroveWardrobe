@@ -1,16 +1,18 @@
 "use client";
 
-import { CircleUserRound, LayoutGrid, Plus, Sparkles, Tags, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import type { MouseEvent, ReactNode } from "react";
+import type { ComponentType, MouseEvent, ReactNode } from "react";
 import { SyncBadge, type SyncStatus } from "./AccountPanel";
+import { AccountIcon, HangerIcon, OutfitsIcon, PlusIcon, TagIcon } from "./Icons";
 
 export type View = "wardrobe" | "outfits" | "categories";
 
-const NAV_ITEMS: { view: View; label: string; icon: LucideIcon }[] = [
-  { view: "wardrobe", label: "Wardrobe", icon: LayoutGrid },
-  { view: "outfits", label: "Outfits", icon: Sparkles },
-  { view: "categories", label: "Categories", icon: Tags },
+// The sidebar pairs each icon with its label; the phone's bottom bar shows
+// icons only, keeping the label as hidden text for its accessible name.
+const NAV_ITEMS: { view: View; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { view: "wardrobe", label: "Wardrobe", icon: HangerIcon },
+  { view: "outfits", label: "Outfits", icon: OutfitsIcon },
+  { view: "categories", label: "Categories", icon: TagIcon },
 ];
 
 type AddAction = {
@@ -54,7 +56,7 @@ type SidebarProps = {
 /** Desktop (≥ 900 px): brand, the one Add action, navigation and the account area. */
 export function Sidebar({ view, counts, onNavigate, onHome, add, account }: SidebarProps) {
   return (
-    <aside className="sidebar" aria-label="Trove">
+    <aside className="sidebar on-plum" aria-label="Trove">
       <Brand onHome={onHome} />
       <button
         type="button"
@@ -62,7 +64,6 @@ export function Sidebar({ view, counts, onNavigate, onHome, add, account }: Side
         onClick={add.onAdd}
         aria-disabled={add.paused || undefined}
       >
-        <Plus size={20} aria-hidden="true" />
         {add.label}
       </button>
       <nav className="sidebar-nav" aria-label="Main">
@@ -75,7 +76,7 @@ export function Sidebar({ view, counts, onNavigate, onHome, add, account }: Side
                 aria-current={view === target ? "page" : undefined}
                 onClick={() => onNavigate(target)}
               >
-                <Icon size={20} aria-hidden="true" />
+                <Icon size={20} />
                 <span>{label}</span>
                 {counts[target] !== null && <span className="sidebar-count">{counts[target]}</span>}
               </button>
@@ -112,16 +113,17 @@ export function BottomNav({ view, onNavigate, add, onAccount }: BottomNavProps) 
       key={target}
       type="button"
       className="bottom-link"
+      title={label}
       aria-current={view === target ? "page" : undefined}
       onClick={() => onNavigate(target)}
     >
-      <Icon size={22} aria-hidden="true" />
-      <span>{label}</span>
+      <Icon size={24} />
+      <span className="visually-hidden">{label}</span>
     </button>
   );
 
   return (
-    <nav className="bottom-nav" aria-label="Main">
+    <nav className="bottom-nav on-plum" aria-label="Main">
       {link(NAV_ITEMS[0])}
       {link(NAV_ITEMS[1])}
       <button
@@ -131,12 +133,12 @@ export function BottomNav({ view, onNavigate, add, onAccount }: BottomNavProps) 
         aria-label={add.label}
         aria-disabled={add.paused || undefined}
       >
-        <Plus size={28} aria-hidden="true" />
+        <PlusIcon size={26} />
       </button>
       {link(NAV_ITEMS[2])}
-      <button type="button" className="bottom-link" onClick={onAccount}>
-        <CircleUserRound size={22} aria-hidden="true" />
-        <span>Account</span>
+      <button type="button" className="bottom-link" title="Account" onClick={onAccount}>
+        <AccountIcon size={24} />
+        <span className="visually-hidden">Account</span>
       </button>
     </nav>
   );

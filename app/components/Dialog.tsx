@@ -1,6 +1,5 @@
 "use client";
 
-import { X } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -9,6 +8,7 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
+import { CloseIcon } from "./Icons";
 
 const FOCUSABLE = [
   "a[href]",
@@ -113,7 +113,7 @@ export function Dialog({
     const target =
       dialog.querySelector<HTMLElement>("[data-autofocus]") ?? focusables(dialog)[0] ?? dialog;
     target.focus();
-    dialog.querySelector(".dialog-panel")?.scrollTo({ top: 0 });
+    dialog.querySelector(".dialog-scroll")?.scrollTo({ top: 0 });
   }, [contentKey]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>) {
@@ -182,7 +182,11 @@ export function Dialog({
       }}
       onClick={handleClick}
     >
-      <div className="dialog-panel">{children}</div>
+      {/* The rounded panel clips; the scroller inside it keeps its scrollbar
+          clear of the curved corners. */}
+      <div className="dialog-panel">
+        <div className="dialog-scroll">{children}</div>
+      </div>
       {overlay}
     </dialog>
   );
@@ -216,7 +220,7 @@ export function DialogHeader({ titleId, kicker, title, onClose, closeDisabled }:
         aria-label="Close"
         aria-disabled={closeDisabled || undefined}
       >
-        <X size={20} aria-hidden="true" />
+        <CloseIcon size={22} />
       </button>
     </header>
   );

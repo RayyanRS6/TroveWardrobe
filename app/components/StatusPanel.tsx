@@ -1,6 +1,5 @@
 "use client";
 
-import { CloudOff, LoaderCircle, RefreshCw, WifiOff } from "lucide-react";
 import type { DataSource } from "../lib/client/wardrobe-state";
 import type { SyncStatus } from "./AccountPanel";
 
@@ -39,9 +38,6 @@ export function StatusPanel({ status, source, retrying, onRetry }: StatusPanelPr
 
   return (
     <div className={`status-panel ${offline ? "status-offline" : "status-error"}`} role="alert">
-      <span className="status-icon" aria-hidden="true">
-        {offline ? <WifiOff size={20} /> : <CloudOff size={20} />}
-      </span>
       <div className="status-copy">
         <p className="status-title">{title}</p>
         <p>{text}</p>
@@ -54,11 +50,6 @@ export function StatusPanel({ status, source, retrying, onRetry }: StatusPanelPr
         }}
         aria-disabled={retrying || undefined}
       >
-        {retrying ? (
-          <LoaderCircle className="spin" size={18} aria-hidden="true" />
-        ) : (
-          <RefreshCw size={18} aria-hidden="true" />
-        )}
         {retrying ? "Trying…" : "Try again"}
       </button>
     </div>

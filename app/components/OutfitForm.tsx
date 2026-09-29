@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronDown, LoaderCircle, Save, Sparkles } from "lucide-react";
 import { useId, useMemo, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -23,6 +22,7 @@ import {
 import { DialogHeader } from "./Dialog";
 import { Field, fieldMessageId } from "./Field";
 import { PiecePicker, toggledSelection } from "./PiecePicker";
+import { Select } from "./Select";
 
 type OutfitFormProps = {
   /** Present when editing. */
@@ -141,6 +141,11 @@ export function OutfitForm({
   }
 
   const editing = Boolean(outfit);
+  // An occasion no longer offered stays available to the outfit that has it.
+  const occasionOptions = [
+    ...OCCASIONS,
+    ...(outfit && !(OCCASIONS as readonly string[]).includes(outfit.occasion) ? [outfit.occasion] : []),
+  ].map((option) => ({ value: option, label: option }));
 
   return (
     <>
@@ -175,20 +180,14 @@ export function OutfitForm({
               aria-describedby={fieldMessageId(`${id}-name`, errors.name)}
             />
           </Field>
-          <Field id={`${id}-occasion`} label="Occasion">
-            <span className="select-wrap">
-              <select
-                id={`${id}-occasion`}
-                className="input"
-                value={occasion}
-                onChange={(event) => setOccasion(event.target.value)}
-              >
-                {OCCASIONS.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-              <ChevronDown size={18} aria-hidden="true" />
-            </span>
+          <Field id={`${id}-occasion`} label="Occasion" select>
+            <Select
+              id={`${id}-occasion`}
+              labelId={`${id}-occasion-label`}
+              value={occasion}
+              options={occasionOptions}
+              onChange={setOccasion}
+            />
           </Field>
         </div>
 
@@ -226,13 +225,6 @@ export function OutfitForm({
             </button>
           )}
           <button type="submit" className="button button-primary" aria-disabled={saving || undefined}>
-            {saving ? (
-              <LoaderCircle className="spin" size={20} aria-hidden="true" />
-            ) : editing ? (
-              <Save size={20} aria-hidden="true" />
-            ) : (
-              <Sparkles size={20} aria-hidden="true" />
-            )}
             {saving ? "Saving…" : editing ? "Save changes" : "Save outfit"}
           </button>
         </div>

@@ -1,31 +1,36 @@
 "use client";
 
-import { ChevronDown, LoaderCircle, Palette, Plus, Save } from "lucide-react";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, apiRequest, errorMessage, isSignedOutError } from "../lib/client/api";
 import { cleanText } from "../lib/client/format";
 import { PhotoError, preparePhoto } from "../lib/client/photo";
-import { toItem } from "../lib/client/wardrobe-state";
+import { categoryKey, toItem } from "../lib/client/wardrobe-state";
 import {
   CATEGORY_MAX,
   COLOR_MAX,
-  DEFAULT_SEASON,
   NAME_MAX,
   RESERVED_CATEGORY,
-  SEASONS,
   type WardrobeItem,
 } from "../lib/wardrobe-options";
 import { DialogHeader } from "./Dialog";
 import { Field, fieldMessageId } from "./Field";
 import { PhotoField, type PhotoChoice } from "./PhotoField";
+import { Select } from "./Select";
 
-type FieldName = "photo" | "name" | "category" | "color";
+type FieldName = "photo" | "name" | "category" | "newCategory" | "color";
 type FieldErrors = Partial<Record<FieldName, string>>;
+
+// The Category list's last option. Category names never keep control
+// characters, so no real category can have this value.
+const NEW_CATEGORY = "\u0000new";
+const CATEGORY_HINT = "Or choose “New category…” to add one.";
+const NEW_CATEGORY_HINT = "It joins your categories when you save.";
 
 type ItemFormProps = {
   /** Present when editing; the form starts from its values. */
   item?: WardrobeItem;
-  categorySuggestions: string[];
+  /** Every category, in list order. */
+  categories: string[];
   titleId: string;
   readOnlyMessage: string | null;
   onBusyChange: (busy: boolean) => void;
@@ -41,7 +46,7 @@ type ItemFormProps = {
 /** Add a piece (photo required) or edit one (photo optional). */
 export function ItemForm({
   item,
-  categorySuggestions,
+  categories,
   titleId,
   readOnlyMessage,
   onBusyChange,
@@ -54,14 +59,36 @@ export function ItemForm({
   const editing = Boolean(item);
   const id = useId();
   const [name, setName] = useState(item?.name ?? "");
-  const [category, setCategory] = useState(item?.category ?? "");
+  // The piece's category in the list's spelling; a new wardrobe with no
+  // categories at all starts on "New category".
+  const [category, setCategory] = useState(() =>
+    item
+      ? (categories.find((entry) => categoryKey(entry) === categoryKey(item.category)) ?? item.category)
+      : categories.length
+        ? ""
+        : NEW_CATEGORY,
+  );
+  const [newCategory, setNewCategory] = useState("");
   const [color, setColor] = useState(item?.color ?? "");
-  const [season, setSeason] = useState(item?.season || DEFAULT_SEASON);
   const [photo, setPhoto] = useState<PhotoChoice>({ status: "none" });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const latestPick = useRef(0);
+  // Set when "New category…" is chosen, so its name field takes focus.
+  const focusNewCategory = useRef(false);
+
+  const categoryOptions = useMemo(() => {
+    const names = [...categories];
+    // A piece whose category was deleted elsewhere keeps it until changed.
+    if (item && !names.some((entry) => categoryKey(entry) === categoryKey(item.category))) {
+      names.push(item.category);
+    }
+    return [
+      ...names.map((entry) => ({ value: entry, label: entry })),
+      { value: NEW_CATEGORY, label: "New category…" },
+    ];
+  }, [categories, item]);
 
   // Each preview URL is released once it is replaced or the form closes.
   const previewUrl = photo.status === "ready" ? photo.previewUrl : null;
@@ -79,6 +106,12 @@ export function ItemForm({
       picks.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (!focusNewCategory.current || category !== NEW_CATEGORY) return;
+    focusNewCategory.current = false;
+    document.getElementById(`${id}-newCategory`)?.focus();
+  }, [category, id]);
 
   async function pickPhoto(file: File) {
     const pick = ++latestPick.current;
@@ -105,14 +138,19 @@ export function ItemForm({
     }
   }
 
+  const chosenCategory = category === NEW_CATEGORY ? cleanText(newCategory) : category;
+
   function validate() {
     const found: FieldErrors = {};
     if (!cleanText(name)) found.name = "Please give the piece a name.";
-    const cleanCategory = cleanText(category);
-    if (!cleanCategory) {
-      found.category = "Please choose or type a category.";
-    } else if (cleanCategory.toLowerCase() === RESERVED_CATEGORY.toLowerCase()) {
-      found.category = `“${RESERVED_CATEGORY}” is reserved. Please choose another category name.`;
+    if (category === NEW_CATEGORY) {
+      if (!chosenCategory) {
+        found.newCategory = "Please name the new category.";
+      } else if (categoryKey(chosenCategory) === categoryKey(RESERVED_CATEGORY)) {
+        found.newCategory = `“${RESERVED_CATEGORY}” is reserved. Please choose another category name.`;
+      }
+    } else if (!category) {
+      found.category = "Please choose a category.";
     }
     if (!editing && photo.status !== "ready") {
       found.photo =
@@ -129,20 +167,15 @@ export function ItemForm({
     };
   }
 
-  function focusField(field: FieldName) {
-    document.getElementById(`${id}-${field}`)?.focus();
-  }
-
   function changedFields() {
     const body = new FormData();
-    const values = {
-      name: cleanText(name),
-      category: cleanText(category),
-      color: cleanText(color),
-      season,
-    };
+    const values = { name: cleanText(name), color: cleanText(color) };
     for (const [key, value] of Object.entries(values)) {
       if (!item || value !== item[key as keyof typeof values]) body.set(key, value);
+    }
+    // The API matches categories case-insensitively: a new spelling alone is no change.
+    if (!item || categoryKey(chosenCategory) !== categoryKey(item.category)) {
+      body.set("category", chosenCategory);
     }
     if (photo.status === "ready") body.set("image", photo.file);
     return body;
@@ -163,11 +196,11 @@ export function ItemForm({
 
     const found = validate();
     setErrors(found);
-    const firstInvalid = (["photo", "name", "category", "color"] as const).find(
+    const firstInvalid = (["photo", "name", "category", "newCategory", "color"] as const).find(
       (field) => found[field],
     );
     if (firstInvalid) {
-      focusField(firstInvalid);
+      document.getElementById(`${id}-${firstInvalid}`)?.focus();
       return;
     }
 
@@ -201,7 +234,6 @@ export function ItemForm({
     }
   }
 
-  const listId = `${id}-categories`;
   const submitLabel = saving
     ? editing
       ? "Saving…"
@@ -259,75 +291,81 @@ export function ItemForm({
         </Field>
 
         <div className="field-row">
-          <Field
-            id={`${id}-category`}
-            label="Category"
-            required
-            error={errors.category}
-            hint="Pick one or type your own."
-          >
-            <input
+          <div className="field-stack">
+            <Field
               id={`${id}-category`}
-              className="input"
-              name="category"
-              list={listId}
-              value={category}
-              onChange={(event) => edit("category", setCategory)(event.target.value)}
-              placeholder="e.g. Shirts"
-              maxLength={CATEGORY_MAX}
-              autoComplete="off"
-              enterKeyHint="next"
+              label="Category"
               required
-              aria-invalid={Boolean(errors.category) || undefined}
-              aria-describedby={fieldMessageId(
-                `${id}-category`,
-                errors.category,
-                "Pick one or type your own.",
-              )}
-            />
-            <datalist id={listId}>
-              {categorySuggestions.map((suggestion) => (
-                <option key={suggestion} value={suggestion} />
-              ))}
-            </datalist>
-          </Field>
+              select
+              error={errors.category}
+              hint={category === NEW_CATEGORY ? undefined : CATEGORY_HINT}
+            >
+              <Select
+                id={`${id}-category`}
+                labelId={`${id}-category-label`}
+                value={category}
+                options={categoryOptions}
+                placeholder="Choose a category"
+                onChange={(value) => {
+                  if (value === NEW_CATEGORY) focusNewCategory.current = true;
+                  edit("category", setCategory)(value);
+                  if (errors.newCategory) setErrors((current) => ({ ...current, newCategory: undefined }));
+                }}
+                invalid={Boolean(errors.category)}
+                describedBy={fieldMessageId(
+                  `${id}-category`,
+                  errors.category,
+                  category === NEW_CATEGORY ? undefined : CATEGORY_HINT,
+                )}
+              />
+            </Field>
+
+            {category === NEW_CATEGORY && (
+              <Field
+                id={`${id}-newCategory`}
+                label="New category name"
+                required
+                error={errors.newCategory}
+                hint={NEW_CATEGORY_HINT}
+              >
+                <input
+                  id={`${id}-newCategory`}
+                  className="input"
+                  name="newCategory"
+                  value={newCategory}
+                  onChange={(event) => edit("newCategory", setNewCategory)(event.target.value)}
+                  placeholder="e.g. Scarves"
+                  maxLength={CATEGORY_MAX}
+                  autoComplete="off"
+                  enterKeyHint="next"
+                  required
+                  aria-invalid={Boolean(errors.newCategory) || undefined}
+                  aria-describedby={fieldMessageId(
+                    `${id}-newCategory`,
+                    errors.newCategory,
+                    NEW_CATEGORY_HINT,
+                  )}
+                />
+              </Field>
+            )}
+          </div>
 
           <Field id={`${id}-color`} label="Colour" error={errors.color}>
-            <span className="input-with-icon">
-              <Palette size={18} aria-hidden="true" />
-              <input
-                id={`${id}-color`}
-                className="input"
-                name="color"
-                value={color}
-                onChange={(event) => edit("color", setColor)(event.target.value)}
-                placeholder="e.g. Olive"
-                maxLength={COLOR_MAX}
-                autoComplete="off"
-                enterKeyHint="next"
-                aria-invalid={Boolean(errors.color) || undefined}
-                aria-describedby={fieldMessageId(`${id}-color`, errors.color)}
-              />
-            </span>
+            <input
+              id={`${id}-color`}
+              className="input"
+              name="color"
+              value={color}
+              onChange={(event) => edit("color", setColor)(event.target.value)}
+              placeholder="e.g. Olive"
+              maxLength={COLOR_MAX}
+              autoComplete="off"
+              enterKeyHint="next"
+              aria-invalid={Boolean(errors.color) || undefined}
+              aria-describedby={fieldMessageId(`${id}-color`, errors.color)}
+            />
           </Field>
         </div>
-
-        <Field id={`${id}-season`} label="Season">
-          <span className="select-wrap">
-            <select
-              id={`${id}-season`}
-              className="input"
-              name="season"
-              value={season}
-              onChange={(event) => setSeason(event.target.value)}
-            >
-              {SEASONS.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
-            <ChevronDown size={18} aria-hidden="true" />
-          </span>
-        </Field>
 
         {formError && (
           <p className="form-error" role="alert">
@@ -353,13 +391,6 @@ export function ItemForm({
             className="button button-primary"
             aria-disabled={saving || photo.status === "preparing" || undefined}
           >
-            {saving || photo.status === "preparing" ? (
-              <LoaderCircle className="spin" size={20} aria-hidden="true" />
-            ) : editing ? (
-              <Save size={20} aria-hidden="true" />
-            ) : (
-              <Plus size={20} aria-hidden="true" />
-            )}
             {submitLabel}
           </button>
         </div>

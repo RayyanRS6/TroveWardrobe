@@ -1,6 +1,5 @@
 "use client";
 
-import { CloudCheck, CloudOff, LoaderCircle, LogOut, WifiOff } from "lucide-react";
 import { formatBytes } from "../lib/client/format";
 import type { StorageUsage } from "../lib/wardrobe-options";
 
@@ -19,17 +18,9 @@ const SYNC_LABELS: Record<SyncStatus["state"], string> = {
 
 /** Sync state pill. Says "Synced" only after the API answered this session. */
 export function SyncBadge({ status }: { status: SyncStatus }) {
-  const Icon =
-    status.state === "loading"
-      ? LoaderCircle
-      : status.state === "synced"
-        ? CloudCheck
-        : status.state === "offline"
-          ? WifiOff
-          : CloudOff;
   return (
     <p className={`sync-badge sync-${status.state}`} role="status">
-      <Icon size={15} className={status.state === "loading" ? "spin" : undefined} aria-hidden="true" />
+      <span className="sync-dot" aria-hidden="true" />
       <span>{SYNC_LABELS[status.state]}</span>
     </p>
   );
@@ -76,11 +67,6 @@ export function AccountPanel({ status, usage, loggingOut, onLogOut }: AccountPan
         }}
         aria-disabled={loggingOut || undefined}
       >
-        {loggingOut ? (
-          <LoaderCircle className="spin" size={18} aria-hidden="true" />
-        ) : (
-          <LogOut size={18} aria-hidden="true" />
-        )}
         {loggingOut ? "Logging out…" : "Log out"}
       </button>
     </div>
