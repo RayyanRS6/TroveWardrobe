@@ -6,11 +6,24 @@
 //                                           uploads its hash, a new session secret and
 //                                           the Backblaze values from .env as Worker
 //                                           secrets. Nothing is written to disk.
+//   npm run deploy:first                    first deploy only: Wrangler refuses to
+//                                           create the Worker without its secrets, so
+//                                           they go through a private temporary file
+//                                           that is deleted right after the deploy.
 //
 // Changing a password signs out every device that used the old one.
 import { spawn } from "node:child_process";
 import { pbkdf2Sync, randomBytes, randomInt } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ENV_FILE = ".env";
@@ -180,16 +193,42 @@ async function setProductionPassword() {
   secrets.APP_PASSWORD_HASH = hashPassword(password);
   secrets.SESSION_SECRET = newSessionSecret();
 
+  if (args.has("--deploy")) {
+    await deployWithSecrets(secrets);
+    console.log("Deployed. Open your workers.dev URL above and log in.");
+    return;
+  }
+
   console.log(`Uploading ${Object.keys(secrets).length} secrets to Cloudflare...`);
-  const child = spawn(process.execPath, [WRANGLER, "secret", "bulk"], {
-    stdio: ["pipe", "inherit", "inherit"],
-  });
-  child.stdin.end(JSON.stringify(secrets));
-  const code = await new Promise((resolve) => child.on("close", resolve));
+  const code = await runWrangler(["secret", "bulk"], JSON.stringify(secrets));
   if (code !== 0) {
-    throw new Error("Wrangler could not upload the secrets. Nothing was changed.");
+    throw new Error(
+      "Wrangler could not upload the secrets. Nothing was changed. " +
+        "If the app has never been deployed, run `npm run deploy:first` instead.",
+    );
   }
   console.log("Done. Every signed-in device must log in again with the new password.");
+}
+
+async function deployWithSecrets(secrets) {
+  const dir = mkdtempSync(join(tmpdir(), "trove-secrets-"));
+  const file = join(dir, "secrets.json");
+  try {
+    writeFileSync(file, JSON.stringify(secrets), { mode: 0o600 });
+    console.log("Deploying with secrets...");
+    const code = await runWrangler(["deploy", "--secrets-file", file]);
+    if (code !== 0) throw new Error("Wrangler could not deploy. Nothing was changed.");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function runWrangler(wranglerArgs, input) {
+  const child = spawn(process.execPath, [WRANGLER, ...wranglerArgs], {
+    stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"],
+  });
+  if (input !== undefined) child.stdin.end(input);
+  return new Promise((resolve) => child.on("close", resolve));
 }
 
 (args.has("--production") ? setProductionPassword() : setLocalPassword()).catch(

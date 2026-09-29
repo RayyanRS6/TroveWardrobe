@@ -1,45 +1,67 @@
 # Trove Wardrobe
 
-Trove is a mobile-first wardrobe organizer built with React, Next.js-compatible
-vinext, and Cloudflare Workers.
+Trove is a private, mobile-first wardrobe organizer: photograph your clothes,
+tag them by category, colour and season, and combine them into outfits. It is a
+single-user app locked behind one password.
 
-## Architecture
+## Tech stack
 
-- Cloudflare Workers hosts the web app and API.
-- D1 stores clothing, custom categories, outfits, and private B2 object metadata.
-- A private Backblaze B2 bucket stores encrypted clothing photos.
-- Cloudflare Images converts each upload to a 1600px WebP before B2 storage.
-- The Worker signs B2 S3 requests; B2 credentials never reach the browser.
-- Worker-level Cloudflare Access protects the app and its API.
-- Browser caching, lazy loading, IndexedDB, and the service worker reduce repeat
-  database and image requests.
+| Layer | Technology |
+| --- | --- |
+| UI | React 19 + TypeScript, plain CSS (light and dark themes), lucide-react icons |
+| Framework | Next.js App Router API via [vinext](https://github.com/cloudflare/vinext) 1.0 on Vite 8 |
+| Hosting | Cloudflare Workers (free plan, `workers.dev` URL) |
+| Database | Cloudflare D1 (SQLite); schema and migrations with Drizzle ORM |
+| Photos | Private Backblaze B2 bucket (S3 API, signed by the Worker with aws4fetch) |
+| Image resizing | Cloudflare Images binding: a 1600px WebP and a 480px thumbnail per photo |
+| Lock | App password: PBKDF2 hash + HMAC-signed session cookie, login throttling |
+| Offline | Service worker + IndexedDB copy of your wardrobe (wiped on logout) |
+
+## How it fits together
+
+- The Worker (`worker/index.ts`) checks the session cookie on every page and
+  API request. Without one, pages redirect to `/login` and the API returns 401.
+- Built JS/CSS, icons and the service worker are served directly by
+  Cloudflare's static assets layer; they contain no wardrobe data.
+- D1 stores item and outfit details plus the B2 object keys. Photos never
+  touch D1 and the B2 bucket is private; the Worker streams them to you.
+- Everything runs on free tiers that stop at their limits instead of billing.
 
 ## Local development
 
+Requirements: Node.js 22+ and a `.env` file (copy `.env.example`).
+
 ```bash
 npm install
+npm run set-password
 npm run dev
 ```
 
-Local requests use `local@trove.app` as a development-only owner. Production
-requests fail closed unless Cloudflare Access provides a verified identity.
+`npm run set-password` stores a hash of a local-only password in `.env`
+(`-- --generate` creates a random one). `npm run dev` applies local database
+migrations, then serves the app at http://localhost:5173. Local data lives in
+`.wrangler/`; photo uploads use the Backblaze bucket configured in `.env`.
 
-## Validation
+## Commands
 
-```bash
-npm run lint
-npx tsc --noEmit
-npm test
-npx wrangler deploy --dry-run --config wrangler.jsonc
-```
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Local dev server with hot reload |
+| `npm run build` | Production build into `dist/` |
+| `npm run preview` | Build, then run the production Worker locally |
+| `npm test` | Build, then run auth unit tests and Worker integration tests |
+| `npm run lint` | ESLint |
+| `npm run icons` | Re-render app icons from `public/icons/icon.svg` (and `icon-small.svg` for the favicon) |
+| `npm run db:generate` | Create a migration after editing `db/schema.ts` |
+| `npm run db:migrate:local` / `db:migrate:remote` | Apply migrations locally / in production |
+| `npm run deploy` | Build and deploy to Cloudflare |
+| `npm run set-password -- --production` | Set the live password (see below) |
 
-## Personal Cloudflare deployment
+## Deploying
 
-See [CLOUDFLARE_SETUP.md](./CLOUDFLARE_SETUP.md). The deployed app uses the
-free `trove-wardrobe.<account-subdomain>.workers.dev` hostname, so a purchased
-domain is optional.
+See [CLOUDFLARE_SETUP.md](./CLOUDFLARE_SETUP.md).
 
 ## Backups
 
-GitHub stores the source code, not uploaded wardrobe data. Export D1 and copy
-B2 objects periodically as described in the setup guide.
+GitHub holds the code, not your wardrobe. Export the database and copy the B2
+bucket periodically, as described in the setup guide.

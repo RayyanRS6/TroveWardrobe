@@ -1,127 +1,90 @@
-# Trove: personal Cloudflare + Backblaze setup
+# Deploying Trove to Cloudflare + Backblaze
 
-Trove uses only services that can run without a payment card:
+Trove runs entirely on free plans that stop at their limits instead of billing:
 
-| Service | Purpose | Safety behavior |
+| Service | Purpose | At the free limit |
 | --- | --- | --- |
-| Cloudflare Workers Free | React app and private API | Stops at the free daily request limit |
-| Cloudflare D1 Free | Clothes, categories, outfits, and B2 object metadata | Stops at free limits |
-| Cloudflare Images Free | Resizes and converts each uploaded photo once | Rejects new transformations at the free limit; no overage charge |
-| Backblaze B2 | Private encrypted image objects | First 10 GB free; app stops uploads at 9 GB |
-| Cloudflare Access | Email login and default-deny privacy | Worker also fails closed without identity |
+| Cloudflare Workers Free | App, API and password gate (100,000 requests/day) | Requests fail until 00:00 UTC |
+| Cloudflare D1 Free | Item and outfit details, login throttling (5 GB) | Queries fail until the next day |
+| Cloudflare Images Free | Resizes each upload (5,000 unique transformations/month) | New uploads are rejected; no charge |
+| Backblaze B2 | Private photo storage (first 10 GB free; Trove stops at 9 GB) | Trove refuses new uploads |
 
-Cloudflare Images converts each accepted upload to a 1600px WebP before it is
-stored in B2. Images are never stored in D1. D1 stores a random B2 object key,
-the exact B2 version ID, MIME type, and byte size. Saving the version ID lets Trove
-permanently delete the exact B2 object rather than leaving a hidden version that
-continues to consume storage.
+Each photo uses two Images transformations (full size and thumbnail), so the
+free plan covers about 2,500 uploads a month.
 
-## Current provisioning status
+## 1. One-time setup
 
-- D1 database `trove-wardrobe`: created in APAC; migrations 0000-0005 applied.
-- Backblaze B2 private bucket `meeru-trove-wardrobe-images`: created and
-  configured with encryption.
-- Restricted B2 application key ID: configured; secret still needs to be stored
-  with Wrangler.
-- Worker deployment: intentionally disabled until B2 and Access are configured.
-- Cloudflare Images Free binding: configured for upload-time optimization.
-- No R2 subscription is required.
+1. **Cloudflare:** sign in on this computer with `npx wrangler login`.
+2. **Database:** the D1 database `trove-wardrobe` is referenced in
+   `wrangler.jsonc`. On a new Cloudflare account, create one with
+   `npx wrangler d1 create trove-wardrobe` and put its `database_id` there.
+3. **Backblaze bucket:** in Backblaze, open **B2 Cloud Storage > Buckets >
+   Create a Bucket**. Set files to **Private**, encryption **Enabled** and
+   Object Lock **Disabled**. Under **Lifecycle Settings**, choose **Keep only
+   the last version**. Note the bucket's **Endpoint**.
+4. **Backblaze key:** **Application Keys > Add a New Application Key**,
+   restricted to that bucket, **Read and Write**. Backblaze shows the
+   `applicationKey` only once.
+5. **`.env`:** copy `.env.example` to `.env` and fill in the four `B2_*`
+   values. Never paste them into chat, source code or GitHub.
 
-## 1. Create the private B2 bucket
-
-1. Create or sign in to your personal Backblaze account and enable **B2 Cloud
-   Storage**. Skip payment information.
-2. Create a bucket with a globally unique name.
-3. Select **Private**. Never make the wardrobe bucket public.
-4. Enable Backblaze-managed server-side encryption (SSE-B2/AES-256).
-5. Leave Object Lock disabled so clothes can be deleted normally.
-6. Open **Lifecycle Settings** and choose **Keep only the last version**. Trove
-   permanently deletes exact versions, while this rule protects against orphaned
-   versions after an interrupted request.
-7. Copy the bucket's S3 endpoint, such as
-   `s3.us-west-004.backblazeb2.com`.
-
-## 2. Create a restricted application key
-
-1. Open **Application Keys** in Backblaze.
-2. Create a new key restricted to only the wardrobe bucket.
-3. Give it read and write access, including listing, uploading, downloading, and
-   deleting files. Do not use the account master key.
-4. Save the displayed **keyID** and **applicationKey**. Backblaze shows the
-   application key only once.
-
-Do not paste the application key into chat, source code, `wrangler.jsonc`, or
-GitHub.
-
-## 3. Configure non-secret values
-
-The following non-secret values are configured in `wrangler.jsonc`:
-
-```jsonc
-"B2_ENDPOINT": "s3.eu-central-003.backblazeb2.com",
-"B2_BUCKET_NAME": "meeru-trove-wardrobe-images",
-"B2_APPLICATION_KEY_ID": "003fc236fc3f0d00000000002"
-```
-
-Keep `B2_STORAGE_LIMIT_BYTES` at `9000000000`. It is intentionally below B2's
-10 GB allowance and is calculated across every wardrobe owner in D1.
-
-## 4. Store the secret securely
-
-Run this command and paste the Backblaze application key only into Wrangler's
-hidden interactive prompt:
+## 2. First deploy
 
 ```bash
-npx wrangler secret put B2_APPLICATION_KEY --config wrangler.jsonc
+npm run db:migrate:remote
+npm run deploy:first
 ```
 
-For local image uploads only, copy `.env.example` to `.env` and put the
-Backblaze values there. `.env` is ignored by Git.
+`deploy:first` asks for the password you will use to open the app (twice,
+hidden), then deploys the Worker together with its secrets: the password hash,
+a new session secret and the Backblaze values from `.env`. Wrangler prints the
+app's `https://trove-wardrobe.<your-subdomain>.workers.dev` URL.
 
-## 5. Apply D1 migrations and validate
+## 3. Later deploys and changes
 
-```bash
-npm run cf:types
-npm run cf:d1:migrate
-npm run lint
-npx tsc --noEmit
-npm test
-npx wrangler deploy --dry-run --config wrangler.jsonc
-```
+| Task | Command |
+| --- | --- |
+| Deploy new code | `npm run deploy` |
+| Apply new database migrations | `npm run db:migrate:remote` |
+| Change the app password (signs out every device) | `npm run set-password -- --production` |
+| Replace the Backblaze key | Update `.env`, then `npm run set-password -- --production` |
 
-The Images Free plan currently allows 5,000 unique transformations each month.
-Trove performs one transformation when a photo is uploaded and does not
-transform it again during normal app loads. If the free limit is reached,
-Cloudflare rejects the upload instead of charging an overage.
+## Security model
 
-## 6. Protect and publish
+- Every page and API route requires a session cookie signed with
+  `SESSION_SECRET` (`HttpOnly`, `Secure`, `SameSite=Lax`, 30 days, renewed while
+  you use the app, re-login after 90 days).
+- Only a PBKDF2 hash of the password is stored, as a Worker secret. Five wrong
+  attempts from one network lock it out for a minute, doubling per further
+  failure (up to a day).
+- Requests that change data must come from the app's own origin.
+- Logging out clears the cookie, the offline copy, the photo cache and the
+  browser cache for the site.
+- The Backblaze bucket is private; the key is restricted to that one bucket
+  and is only known to the Worker.
+- This repository is public, so it contains only placeholders; real values live
+  in `.env` (ignored by Git) and in Cloudflare's write-only secret store.
 
-Keep `workers_dev` and preview URLs disabled until Cloudflare Access permits only
-your personal email. The Worker separately calls `ctx.access.getIdentity()` and
-returns `403` when Cloudflare does not provide a verified identity.
+## Troubleshooting
 
-After Access is configured, enable the `workers.dev` route, deploy, and verify:
-
-- a signed-out request cannot load HTML, API data, or images;
-- your authorized email can add, load, and permanently delete an image;
-- the B2 bucket remains private;
-- the D1 row contains only metadata, not image bytes.
-
-## Caching and request use
-
-The API loads small metadata records from D1. Already-optimized images are
-streamed from private B2 through the authenticated Worker. Image URLs are
-versioned and returned with
-`private, max-age=31536000, immutable`; lazy loading and the local service-worker
-cache mean repeat views normally use the device copy instead of B2.
+- **Locked out after wrong passwords:** wait for the lock to expire, or clear
+  it with
+  `npx wrangler d1 execute trove-wardrobe --remote --command "DELETE FROM auth_throttle"`.
+- **Forgot the password:** set a new one with
+  `npm run set-password -- --production`.
+- **Uploads fail with a storage error:** check that the four `B2_*` secrets
+  belong to the same Backblaze key and bucket, then rerun
+  `npm run set-password -- --production`.
 
 ## Backups
 
-Export D1 with:
+GitHub stores only code. Export your wardrobe data periodically and keep the
+files outside the repository (they contain personal data; `*.sql` files are
+ignored by Git):
 
 ```bash
-npx wrangler d1 export trove-wardrobe --remote --output backup.sql
+npx wrangler d1 export trove-wardrobe --remote --output trove-backup.sql
 ```
 
-Copy the B2 bucket periodically with an S3-compatible backup tool. Keep backups
-outside Git because they contain personal wardrobe data.
+Copy the photos with any S3-compatible tool (for example `rclone`) using a
+read-only Backblaze key.

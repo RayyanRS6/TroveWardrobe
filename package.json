@@ -11,13 +11,14 @@
     "build": "vite build",
     "preview": "vite build && vite preview",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:first": "npm run build && node scripts/set-password.mjs --production --deploy",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply trove-wardrobe --local",
     "db:migrate:remote": "wrangler d1 migrations apply trove-wardrobe --remote",
     "cf:types": "wrangler types --include-runtime false",
     "set-password": "node scripts/set-password.mjs",
     "icons": "node scripts/render-icons.mjs",
-    "test": "npm run build && node --test tests/",
+    "test": "npm run build && node --test \"tests/*.test.mjs\"",
     "lint": "eslint ."
   },
   "dependencies": {
