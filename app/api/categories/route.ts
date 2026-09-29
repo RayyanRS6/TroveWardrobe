@@ -1,23 +1,19 @@
 import {
   apiError,
-  getOwner,
   getWardrobeDb,
+  loadCategoryCounts,
+  NO_STORE,
+  requireOwner,
 } from "../../lib/wardrobe-store";
 
 export const dynamic = "force-dynamic";
 
+/** Categories in use, grouped case-insensitively: {categories: {name, count}[]}. */
 export async function GET(request: Request) {
   try {
-    const owner = getOwner(request);
-    const db = getWardrobeDb();
-    const result = await db
-      .prepare(
-        "SELECT name FROM wardrobe_categories WHERE owner = ? ORDER BY name COLLATE NOCASE",
-      )
-      .bind(owner)
-      .all<{ name: string }>();
-
-    return Response.json({ categories: result.results.map((row) => row.name) });
+    const owner = await requireOwner(request);
+    const categories = await loadCategoryCounts(getWardrobeDb(), owner);
+    return Response.json({ categories }, { headers: NO_STORE });
   } catch (error) {
     return apiError(error);
   }

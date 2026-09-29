@@ -1,26 +1,36 @@
 import {
   apiError,
-  getOwner,
+  canonicalCategory,
   getWardrobeDb,
+  ITEM_COLUMNS,
   itemResponse,
+  loadCategoryCounts,
+  NO_STORE,
+  requireOwner,
   type WardrobeItemRow,
 } from "../../lib/wardrobe-store";
+import { deleteB2ObjectsQuietly, type StoredObject } from "../../lib/b2-storage";
 import {
-  deleteB2Object,
-  getB2StorageLimitBytes,
-  putB2Object,
-} from "../../lib/b2-storage";
-import { optimizeWardrobeImage } from "../../lib/image-processing";
+  formText,
+  readMultipartForm,
+  validateCategory,
+  validateColor,
+  validateImage,
+  validateName,
+  validateSeason,
+} from "../../lib/wardrobe-input";
+import { assertPhotoFits, storageFull, storePhoto } from "../../lib/wardrobe-photos";
+import { DEFAULT_SEASON } from "../../lib/wardrobe-options";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const owner = getOwner(request);
+    const owner = await requireOwner(request);
     const db = getWardrobeDb();
     const result = await db
       .prepare(
-        `SELECT id, name, category, color, season, image_key
+        `SELECT ${ITEM_COLUMNS}
          FROM wardrobe_items
          WHERE owner = ?
          ORDER BY created_at DESC, id DESC`,
@@ -28,98 +38,50 @@ export async function GET(request: Request) {
       .bind(owner)
       .all<WardrobeItemRow>();
 
-    return Response.json({ items: result.results.map(itemResponse) });
+    return Response.json(
+      { items: result.results.map(itemResponse) },
+      { headers: NO_STORE },
+    );
   } catch (error) {
     return apiError(error);
   }
 }
 
 export async function POST(request: Request) {
-  let uploadedKey: string | null = null;
-  let uploadedVersion = "";
+  const uploaded: StoredObject[] = [];
 
   try {
-    const owner = getOwner(request);
-    const form = await request.formData();
-    const name = String(form.get("name") ?? "").trim();
-    const category = String(form.get("category") ?? "").trim();
-    const color = String(form.get("color") ?? "").trim();
-    const season = String(form.get("season") ?? "All season").trim();
-    const image = form.get("image");
-
-    if (!name || !category) {
-      return Response.json(
-        { error: "Name and category are required." },
-        { status: 400 },
-      );
-    }
-
-    if (category.length > 40 || color.length > 30 || season.length > 30) {
-      return Response.json({ error: "One of the details is too long." }, { status: 400 });
-    }
-
-    if (!(image instanceof File)) {
-      return Response.json(
-        { error: "Please choose a JPG, PNG, WebP, or AVIF clothing image." },
-        { status: 400 },
-      );
-    }
-
-    if (image.size > 10 * 1024 * 1024) {
-      return Response.json(
-        { error: "Please use an image smaller than 10 MB." },
-        { status: 400 },
-      );
-    }
-
-    const signature = new Uint8Array(await image.slice(0, 12).arrayBuffer());
-    if (!isSupportedImage(signature)) {
-      return Response.json(
-        { error: "The selected file is not a valid JPG, PNG, WebP, or AVIF image." },
-        { status: 400 },
-      );
-    }
-
-    const optimizedImage = await optimizeWardrobeImage(image.stream());
-    const imageBytes = optimizedImage.bytes;
+    const owner = await requireOwner(request);
+    const form = await readMultipartForm(request);
+    const name = validateName(formText(form, "name", "Name") ?? "", "piece");
+    const categoryInput = validateCategory(formText(form, "category", "Category") ?? "");
+    const color = validateColor(formText(form, "color", "Colour") ?? "");
+    const seasonInput = formText(form, "season", "Season");
+    const season = seasonInput ? validateSeason(seasonInput) : DEFAULT_SEASON;
+    const image = await validateImage(form.get("image"));
 
     const db = getWardrobeDb();
-    const usage = await db
-      .prepare("SELECT COALESCE(SUM(image_size), 0) AS bytes_used FROM wardrobe_items")
-      .first<{ bytes_used: number }>();
-    const storageLimit = getB2StorageLimitBytes();
-    if ((usage?.bytes_used ?? 0) + imageBytes.byteLength > storageLimit) {
-      return Response.json(
-        { error: "Your free image-storage safety limit has been reached." },
-        { status: 507 },
-      );
-    }
-
-    const storedKey = `clothes/${crypto.randomUUID()}.${optimizedImage.extension}`;
-    const imageVersion = await putB2Object(
-      storedKey,
-      imageBytes,
-      optimizedImage.contentType,
+    const category = canonicalCategory(
+      categoryInput,
+      await loadCategoryCounts(db, owner),
     );
-    uploadedKey = storedKey;
-    uploadedVersion = imageVersion;
 
-    await db
-      .prepare(
-        "INSERT OR IGNORE INTO wardrobe_categories (owner, name) VALUES (?, ?)",
-      )
-      .bind(owner, category)
-      .run();
+    const storageLimit = await assertPhotoFits(db, image.size);
+    const photo = await storePhoto(image, uploaded);
+
+    // Re-checks the limit with the real sizes, atomically with the insert.
     const row = await db
       .prepare(
         `INSERT INTO wardrobe_items
-          (owner, name, category, color, season, image_key, image_version, image_type, image_size)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+          (owner, name, category, color, season,
+           image_key, image_version, image_type, image_size,
+           thumb_key, thumb_version, thumb_size)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          WHERE (
-           SELECT COALESCE(SUM(image_size), 0)
+           SELECT COALESCE(SUM(image_size + thumb_size), 0)
            FROM wardrobe_items
          ) + ? <= ?
-         RETURNING id, name, category, color, season, image_key`,
+         RETURNING ${ITEM_COLUMNS}`,
       )
       .bind(
         owner,
@@ -127,83 +89,23 @@ export async function POST(request: Request) {
         category,
         color,
         season,
-        storedKey,
-        imageVersion,
-        optimizedImage.contentType,
-        imageBytes.byteLength,
-        imageBytes.byteLength,
+        photo.imageKey,
+        photo.imageVersion,
+        photo.imageType,
+        photo.imageSize,
+        photo.thumbKey,
+        photo.thumbVersion,
+        photo.thumbSize,
+        photo.imageSize + photo.thumbSize,
         storageLimit,
       )
       .first<WardrobeItemRow>();
 
-    if (!row) {
-      await deleteB2Object(storedKey, imageVersion);
-      uploadedKey = null;
-      uploadedVersion = "";
-      return Response.json(
-        { error: "Your free image-storage safety limit has been reached." },
-        { status: 507 },
-      );
-    }
-    uploadedKey = null;
-    uploadedVersion = "";
-    return Response.json({ item: itemResponse(row) }, { status: 201 });
+    if (!row) throw storageFull();
+    uploaded.length = 0;
+    return Response.json({ item: itemResponse(row) }, { status: 201, headers: NO_STORE });
   } catch (error) {
-    if (uploadedKey) {
-      try {
-        await deleteB2Object(uploadedKey, uploadedVersion);
-      } catch (cleanupError) {
-        console.error(
-          JSON.stringify({
-            message: "B2 upload rollback failed",
-            key: uploadedKey,
-            error:
-              cleanupError instanceof Error
-                ? cleanupError.message
-                : String(cleanupError),
-          }),
-        );
-      }
-    }
+    await deleteB2ObjectsQuietly(uploaded, "upload rollback");
     return apiError(error);
   }
-}
-
-function isSupportedImage(bytes: Uint8Array) {
-  if (
-    bytes.length >= 3 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[2] === 0xff
-  ) {
-    return true;
-  }
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
-  ) {
-    return true;
-  }
-  if (
-    bytes.length >= 12 &&
-    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-  ) {
-    return true;
-  }
-  if (
-    bytes.length >= 12 &&
-    String.fromCharCode(...bytes.slice(4, 8)) === "ftyp" &&
-    ["avif", "avis"].includes(String.fromCharCode(...bytes.slice(8, 12)))
-  ) {
-    return true;
-  }
-  return false;
 }

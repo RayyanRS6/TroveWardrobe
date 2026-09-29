@@ -4,16 +4,8 @@
   "main": "./worker/index.ts",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
-  "access": {
-    "dev": {
-      "aud": "trove-wardrobe-local",
-      "identity": {
-        "email": "local@trove.app"
-      }
-    }
-  },
   // Built files (hashed JS/CSS, sw.js, manifest, icons) are served directly;
   // they hold no wardrobe data. Every other path reaches the Worker.
   "assets": {

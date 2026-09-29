@@ -1,0 +1,1 @@
+DROP TABLE `wardrobe_categories`;
