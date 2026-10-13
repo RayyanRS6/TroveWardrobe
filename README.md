@@ -4,6 +4,8 @@ Trove is a private, mobile-first wardrobe organizer: photograph your clothes,
 sort them into categories you manage, note their colour, and combine them into
 outfits. It is a single-user app locked behind one password.
 
+**Live:** [trove.meerub.workers.dev](https://trove.meerub.workers.dev) (private and password-protected, so the link opens the sign-in screen)
+
 ## Tech stack
 
 | Layer | Technology |
